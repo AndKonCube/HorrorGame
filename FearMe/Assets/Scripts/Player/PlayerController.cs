@@ -37,6 +37,7 @@ namespace FearMe.Player
         private InputAction sprintAction;
         private InputAction crouchAction;
         private InputAction jumpAction;
+        private System.Action<InputAction.CallbackContext> crouchHandler;
 
         private Vector3 verticalVelocity;
         private float pitch;
@@ -76,9 +77,18 @@ namespace FearMe.Player
             crouchAction = playerInput.actions["Crouch"];
             jumpAction = playerInput.actions["Jump"];
 
-            crouchAction.performed += _ => ToggleCrouch();
+            crouchHandler = _ => ToggleCrouch();
+            crouchAction.performed += crouchHandler;
 
             currentHeight = standHeight;
+        }
+
+        // The action asset outlives this component, so a lambda left subscribed
+        // would fire into a destroyed object after a scene reload.
+        private void OnDestroy()
+        {
+            if (crouchAction != null && crouchHandler != null)
+                crouchAction.performed -= crouchHandler;
         }
 
         private void Start()
