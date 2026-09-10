@@ -5,36 +5,48 @@ using UnityEngine.SceneManagement;
 
 namespace FearMe.Core
 {
-    // Handles the catch -> jumpscare -> reload sequence. Wire
-    // EnemyStalkerAI's "On Player Caught" UnityEvent to OnPlayerCaught().
+    // Ends the run, either by being caught or by escaping, then reloads.
+    // EnemyStalkerAI's onPlayerCaught event calls OnPlayerCaught().
     public class GameOverController : MonoBehaviour
     {
         [SerializeField] private CanvasGroup fadeCanvasGroup;
         [SerializeField] private AudioSource jumpscareAudio;
         [SerializeField] private PlayerInput playerInputToDisable;
         [SerializeField] private float fadeDuration = 0.6f;
-        [SerializeField] private float delayBeforeReload = 1.6f;
+        [SerializeField] private float delayBeforeReload = 2.5f;
 
-        private bool triggered;
+        public bool IsFinished { get; private set; }
+        public bool DidEscape { get; private set; }
 
         public void OnPlayerCaught()
         {
-            if (triggered) return;
-            triggered = true;
-            StartCoroutine(CaughtSequence());
+            if (IsFinished) return;
+            IsFinished = true;
+            DidEscape = false;
+            if (jumpscareAudio != null) jumpscareAudio.Play();
+            StartCoroutine(EndSequence(fadeDuration));
         }
 
-        private IEnumerator CaughtSequence()
+        public void OnPlayerEscaped()
+        {
+            if (IsFinished) return;
+            IsFinished = true;
+            DidEscape = true;
+            StartCoroutine(EndSequence(1.5f));
+        }
+
+        private IEnumerator EndSequence(float duration)
         {
             if (playerInputToDisable != null) playerInputToDisable.enabled = false;
-            if (jumpscareAudio != null) jumpscareAudio.Play();
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
 
             float elapsed = 0f;
-            while (elapsed < fadeDuration)
+            while (elapsed < duration)
             {
                 elapsed += Time.deltaTime;
                 if (fadeCanvasGroup != null)
-                    fadeCanvasGroup.alpha = Mathf.Clamp01(elapsed / fadeDuration);
+                    fadeCanvasGroup.alpha = Mathf.Clamp01(elapsed / duration);
                 yield return null;
             }
 

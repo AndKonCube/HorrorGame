@@ -36,7 +36,7 @@ namespace FearMe.AI
         [SerializeField] private float catchDistance = 1.0f;
 
         [Header("Events")]
-        [SerializeField] private UnityEvent onPlayerCaught;
+        public UnityEvent onPlayerCaught;
 
         private NavMeshAgent agent;
         private State state;
