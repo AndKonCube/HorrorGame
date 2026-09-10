@@ -15,8 +15,14 @@ using UnityEngine.UI;
 
 namespace FearMe.EditorTools
 {
-    // Generates the whole playable demo scene: level blockout, player rig,
-    // stalker enemy, baked NavMesh, patrol route, hiding spots and objectives.
+    // Generates the playable demo: the first floor of a hospital, plus the
+    // player rig, stalker enemy, baked NavMesh, patrol route and objectives.
+    //
+    // Floor plan (80 x 60), a grid of corridors so chases can loop:
+    //   corridors run E-W at z = +-10 and N-S at x = -25, 0, +25
+    //   north row   : operating theatre | ward A | ward B | supply
+    //   middle row  : radiology | nurses' station | pharmacy + records | staff
+    //   south row   : morgue | reception | waiting | generator
     public static class DemoSceneBuilder
     {
         private const string ScenePath = "Assets/Scenes/Demo.unity";
@@ -26,6 +32,25 @@ namespace FearMe.EditorTools
 
         private const float WallHeight = 4f;
         private const float WallY = 2f;
+        private const float WallThickness = 0.4f;
+        private const float DoorHalfWidth = 1.5f;
+
+        private const float HalfWidth = 40f;
+        private const float HalfDepth = 30f;
+
+        // Openings where a corridor crosses a wall line.
+        private static readonly Vector2[] NorthSouthCorridors =
+        {
+            new Vector2(-28f, -22f),
+            new Vector2(-3f, 3f),
+            new Vector2(22f, 28f)
+        };
+
+        private static readonly Vector2[] EastWestCorridors =
+        {
+            new Vector2(-13f, -7f),
+            new Vector2(7f, 13f)
+        };
 
         [MenuItem("Tools/FearMe/Build Demo Scene")]
         public static void BuildDemoScene()
@@ -38,25 +63,30 @@ namespace FearMe.EditorTools
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-            Material floorMat = GetOrCreateMaterial("Demo_Floor", new Color(0.16f, 0.15f, 0.14f));
-            Material wallMat = GetOrCreateMaterial("Demo_Wall", new Color(0.22f, 0.20f, 0.19f));
+            Material floorMat = GetOrCreateMaterial("Demo_Floor", new Color(0.17f, 0.17f, 0.16f));
+            Material wallMat = GetOrCreateMaterial("Demo_Wall", new Color(0.26f, 0.27f, 0.25f));
+            Material propMat = GetOrCreateMaterial("Demo_Prop", new Color(0.34f, 0.36f, 0.36f));
             Material enemyMat = GetOrCreateMaterial("Demo_Enemy", new Color(0.35f, 0.05f, 0.05f));
             Material keyMat = GetOrCreateMaterial("Demo_Key", new Color(0.85f, 0.7f, 0.2f), emissive: true);
             Material doorMat = GetOrCreateMaterial("Demo_Door", new Color(0.30f, 0.18f, 0.08f));
 
             BuildAtmosphere();
-            Transform level = BuildLevel(levelLayer, floorMat, wallMat, doorMat);
+            Transform level = BuildLevel(levelLayer, floorMat, wallMat, doorMat, propMat);
+            BuildCeilingLights(level);
 
             GameObject player = BuildPlayer();
             PatrolRoute route = BuildPatrolRoute();
             EnemyStalkerAI enemy = BuildEnemy(enemyMat, player.GetComponent<PlayerController>(), route, levelMask);
 
-            BuildHidingSpot(level, new Vector3(-16f, 0f, 10f), 0f, levelLayer, wallMat);
-            BuildHidingSpot(level, new Vector3(12f, 0f, -12f), 90f, levelLayer, wallMat);
+            // Alcoves to break line of sight, spread across the wings.
+            BuildHidingSpot(level, new Vector3(-18f, 0f, 27f), 180f, levelLayer, wallMat);
+            BuildHidingSpot(level, new Vector3(18f, 0f, -26f), 0f, levelLayer, wallMat);
+            BuildHidingSpot(level, new Vector3(35f, 0f, 3f), 270f, levelLayer, wallMat);
+            BuildHidingSpot(level, new Vector3(-19f, 0f, -26f), 0f, levelLayer, wallMat);
 
-            BuildKey(new Vector3(-16f, 1f, 16f), keyMat);
-            BuildKey(new Vector3(16f, 1f, 16f), keyMat);
-            BuildKey(new Vector3(16f, 1f, -16f), keyMat);
+            BuildKey(new Vector3(-34f, 1f, -20f), keyMat);  // morgue
+            BuildKey(new Vector3(-34f, 1f, 22f), keyMat);   // operating theatre
+            BuildKey(new Vector3(17f, 1f, 0f), keyMat);     // records
 
             GameObject managers = BuildManagers(player, enemy);
             WireExitDoor(managers.GetComponent<GameOverController>());
@@ -68,61 +98,173 @@ namespace FearMe.EditorTools
             RegisterSceneInBuildSettings();
 
             AssetDatabase.SaveAssets();
-            Debug.Log("[FearMe] Demo scene built at " + ScenePath + ". Press Play to run it.");
+            Debug.Log("[FearMe] Hospital demo scene built at " + ScenePath + ". Press Play to run it.");
         }
 
         private static void BuildAtmosphere()
         {
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogDensity = 0.055f;
-            RenderSettings.fogColor = new Color(0.03f, 0.03f, 0.04f);
+            RenderSettings.fogDensity = 0.045f;
+            RenderSettings.fogColor = new Color(0.03f, 0.035f, 0.04f);
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.05f, 0.05f, 0.07f);
+            RenderSettings.ambientLight = new Color(0.05f, 0.055f, 0.07f);
             RenderSettings.skybox = null;
-
-            GameObject moonGO = new GameObject("Moonlight");
-            Light moon = moonGO.AddComponent<Light>();
-            moon.type = LightType.Directional;
-            moon.intensity = 0.12f;
-            moon.color = new Color(0.6f, 0.7f, 1f);
-            moon.shadows = LightShadows.Soft;
-            moonGO.transform.rotation = Quaternion.Euler(140f, 30f, 0f);
         }
 
-        private static Transform BuildLevel(int levelLayer, Material floorMat, Material wallMat, Material doorMat)
+        private static Transform BuildLevel(int levelLayer, Material floorMat, Material wallMat, Material doorMat, Material propMat)
         {
             GameObject root = new GameObject("Level");
             Transform t = root.transform;
 
-            CreateBox(t, "Floor", new Vector3(0f, -0.25f, 0f), new Vector3(40f, 0.5f, 40f), levelLayer, floorMat);
-            // Default layer: keeps the ceiling out of the NavMesh bake and the vision mask.
-            CreateBox(t, "Ceiling", new Vector3(0f, WallHeight, 0f), new Vector3(40f, 0.5f, 40f), 0, floorMat);
+            CreateBox(t, "Floor", new Vector3(0f, -0.25f, 0f), new Vector3(80f, 0.5f, 60f), levelLayer, floorMat);
+            // Default layer keeps the ceiling out of the NavMesh bake and the vision mask.
+            CreateBox(t, "Ceiling", new Vector3(0f, WallHeight, 0f), new Vector3(80f, 0.5f, 60f), 0, floorMat);
 
-            // Outer shell, with a gap in the south wall for the exit door.
-            CreateBox(t, "Wall_N", new Vector3(0f, WallY, 20f), new Vector3(40.5f, WallHeight, 0.5f), levelLayer, wallMat);
-            CreateBox(t, "Wall_E", new Vector3(20f, WallY, 0f), new Vector3(0.5f, WallHeight, 40.5f), levelLayer, wallMat);
-            CreateBox(t, "Wall_W", new Vector3(-20f, WallY, 0f), new Vector3(0.5f, WallHeight, 40.5f), levelLayer, wallMat);
-            CreateBox(t, "Wall_S_Left", new Vector3(-11f, WallY, -20f), new Vector3(18f, WallHeight, 0.5f), levelLayer, wallMat);
-            CreateBox(t, "Wall_S_Right", new Vector3(11f, WallY, -20f), new Vector3(18f, WallHeight, 0.5f), levelLayer, wallMat);
-
-            // Interior partitions creating a serpentine route with sight breaks.
-            CreateBox(t, "Wall_1", new Vector3(-8f, WallY, 6f), new Vector3(24f, WallHeight, 0.5f), levelLayer, wallMat);
-            CreateBox(t, "Wall_2", new Vector3(8f, WallY, -6f), new Vector3(24f, WallHeight, 0.5f), levelLayer, wallMat);
-            CreateBox(t, "Wall_3", new Vector3(6f, WallY, 12f), new Vector3(0.5f, WallHeight, 16f), levelLayer, wallMat);
-            CreateBox(t, "Wall_4", new Vector3(-8f, WallY, -13f), new Vector3(0.5f, WallHeight, 14f), levelLayer, wallMat);
-
-            GameObject door = CreateBox(t, "ExitDoor", new Vector3(0f, WallY, -20f), new Vector3(4f, WallHeight, 0.4f), levelLayer, doorMat);
-            door.AddComponent<ExitDoor>();
+            BuildOuterShell(t, levelLayer, wallMat, doorMat);
+            BuildInteriorWalls(t, levelLayer, wallMat);
+            BuildProps(t, levelLayer, propMat);
 
             return t;
+        }
+
+        private static void BuildOuterShell(Transform t, int layer, Material wallMat, Material doorMat)
+        {
+            BuildWallRun(t, "Wall_North", true, HalfDepth, -HalfWidth, HalfWidth, null, layer, wallMat);
+            BuildWallRun(t, "Wall_West", false, -HalfWidth, -HalfDepth, HalfDepth, null, layer, wallMat);
+            BuildWallRun(t, "Wall_East", false, HalfWidth, -HalfDepth, HalfDepth, null, layer, wallMat);
+
+            // South wall carries the entrance the player escapes through.
+            List<Vector2> southGaps = new List<Vector2> { new Vector2(-2f, 2f) };
+            BuildWallRun(t, "Wall_South", true, -HalfDepth, -HalfWidth, HalfWidth, southGaps, layer, wallMat);
+
+            GameObject door = CreateBox(t, "ExitDoor", new Vector3(0f, WallY, -HalfDepth),
+                new Vector3(4f, WallHeight, WallThickness), layer, doorMat);
+            door.AddComponent<ExitDoor>();
+        }
+
+        private static void BuildInteriorWalls(Transform t, int layer, Material mat)
+        {
+            // North side of the north corridor: theatre, two wards, supply.
+            List<Vector2> z13 = CorridorGaps(NorthSouthCorridors);
+            AddDoor(z13, -34f);
+            AddDoor(z13, -16f);
+            AddDoor(z13, -8f);
+            AddDoor(z13, 10f);
+            AddDoor(z13, 17f);
+            AddDoor(z13, 34f);
+            BuildWallRun(t, "Wall_Z13", true, 13f, -HalfWidth, HalfWidth, z13, layer, mat);
+
+            // South side of the north corridor: radiology, nurses' station, pharmacy, staff.
+            List<Vector2> z7 = CorridorGaps(NorthSouthCorridors);
+            AddDoor(z7, -34f);
+            AddDoor(z7, 12f);
+            AddDoor(z7, 34f);
+            z7.Add(new Vector2(-16f, -8f)); // nurses' station opens onto the corridor
+            BuildWallRun(t, "Wall_Z7", true, 7f, -HalfWidth, HalfWidth, z7, layer, mat);
+
+            // North side of the south corridor.
+            List<Vector2> zMinus7 = CorridorGaps(NorthSouthCorridors);
+            AddDoor(zMinus7, -34f);
+            AddDoor(zMinus7, -12f);
+            AddDoor(zMinus7, 12f);
+            AddDoor(zMinus7, 34f);
+            BuildWallRun(t, "Wall_ZMinus7", true, -7f, -HalfWidth, HalfWidth, zMinus7, layer, mat);
+
+            // South side of the south corridor: morgue, reception, waiting, generator.
+            List<Vector2> zMinus13 = CorridorGaps(NorthSouthCorridors);
+            AddDoor(zMinus13, -34f);
+            AddDoor(zMinus13, -12f);
+            AddDoor(zMinus13, 12f);
+            AddDoor(zMinus13, 34f);
+            BuildWallRun(t, "Wall_ZMinus13", true, -13f, -HalfWidth, HalfWidth, zMinus13, layer, mat);
+
+            // Vertical corridor walls; doors let each wing be entered from the side too.
+            float[] verticalLines = { -28f, -22f, -3f, 3f, 22f, 28f };
+            foreach (float x in verticalLines)
+            {
+                List<Vector2> gaps = CorridorGaps(EastWestCorridors);
+                AddDoor(gaps, -20f);
+                AddDoor(gaps, 0f);
+                AddDoor(gaps, 20f);
+                BuildWallRun(t, "Wall_X" + x, false, x, -HalfDepth, HalfDepth, gaps, layer, mat);
+            }
+
+            // Room splits inside the larger blocks.
+            BuildWallRun(t, "Split_WardA", false, -12.5f, 13f, HalfDepth, null, layer, mat);
+            BuildWallRun(t, "Split_WardB", false, 12.5f, 13f, HalfDepth, null, layer, mat);
+            BuildWallRun(t, "Split_Records", false, 12.5f, -7f, 7f, null, layer, mat);
+        }
+
+        private static void BuildProps(Transform t, int layer, Material mat)
+        {
+            GameObject props = new GameObject("Props");
+            props.transform.SetParent(t, false);
+            Transform p = props.transform;
+
+            // Ward beds.
+            float[] bedRows = { 18f, 24f };
+            float[] bedColumns = { -20f, -15f, -10f, -5.5f, 5.5f, 10f, 15f, 20f };
+            foreach (float x in bedColumns)
+            {
+                foreach (float z in bedRows)
+                    CreateBox(p, "Bed", new Vector3(x, 0.5f, z), new Vector3(2f, 0.5f, 1f), layer, mat);
+            }
+
+            // Reception desk and waiting benches.
+            CreateBox(p, "ReceptionDesk", new Vector3(-10f, 0.55f, -20f), new Vector3(12f, 1.1f, 0.9f), layer, mat);
+            CreateBox(p, "Bench_1", new Vector3(10f, 0.3f, -18f), new Vector3(6f, 0.6f, 0.8f), layer, mat);
+            CreateBox(p, "Bench_2", new Vector3(10f, 0.3f, -22f), new Vector3(6f, 0.6f, 0.8f), layer, mat);
+
+            // Morgue slabs.
+            CreateBox(p, "Slab_1", new Vector3(-36f, 0.5f, -18f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
+            CreateBox(p, "Slab_2", new Vector3(-36f, 0.5f, -22f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
+            CreateBox(p, "Slab_3", new Vector3(-32f, 0.5f, -20f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
+
+            // Operating table and radiology gear.
+            CreateBox(p, "OperatingTable", new Vector3(-34f, 0.6f, 20f), new Vector3(1.4f, 0.6f, 2.6f), layer, mat);
+            CreateBox(p, "Scanner", new Vector3(-34f, 1f, 0f), new Vector3(3f, 2f, 2f), layer, mat);
+
+            // Pharmacy shelving.
+            CreateBox(p, "Shelf_1", new Vector3(7f, 1f, 4f), new Vector3(6f, 2f, 0.6f), layer, mat);
+            CreateBox(p, "Shelf_2", new Vector3(7f, 1f, -4f), new Vector3(6f, 2f, 0.6f), layer, mat);
+        }
+
+        private static void BuildCeilingLights(Transform level)
+        {
+            GameObject lights = new GameObject("CeilingLights");
+            lights.transform.SetParent(level, false);
+
+            Vector3[] positions =
+            {
+                new Vector3(0f, 3.6f, -25f), new Vector3(0f, 3.6f, -18f), new Vector3(0f, 3.6f, 0f),
+                new Vector3(0f, 3.6f, 18f), new Vector3(0f, 3.6f, 25f),
+                new Vector3(-25f, 3.6f, 10f), new Vector3(0f, 3.6f, 10f), new Vector3(25f, 3.6f, 10f),
+                new Vector3(-25f, 3.6f, -10f), new Vector3(0f, 3.6f, -10f), new Vector3(25f, 3.6f, -10f),
+                new Vector3(-34f, 3.6f, 20f), new Vector3(-34f, 3.6f, -20f), new Vector3(17f, 3.6f, 0f)
+            };
+
+            for (int i = 0; i < positions.Length; i++)
+            {
+                GameObject go = new GameObject("CeilingLight_" + i);
+                go.transform.SetParent(lights.transform, false);
+                go.transform.position = positions[i];
+
+                Light light = go.AddComponent<Light>();
+                light.type = LightType.Point;
+                light.range = 14f;
+                light.intensity = 1.1f;
+                light.color = new Color(0.75f, 0.82f, 0.85f);
+
+                // Only some of them are faulty, so the flicker still reads as wrong.
+                if (i % 3 == 0) go.AddComponent<FlickeringLight>();
+            }
         }
 
         private static GameObject BuildPlayer()
         {
             GameObject player = new GameObject("Player");
-            player.transform.position = new Vector3(-16f, 0.1f, -16f);
-            player.transform.rotation = Quaternion.Euler(0f, 45f, 0f);
+            player.transform.position = new Vector3(0f, 0.1f, -27f);
 
             CharacterController cc = player.AddComponent<CharacterController>();
             cc.height = 1.8f;
@@ -148,7 +290,7 @@ namespace FearMe.EditorTools
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.02f, 0.02f, 0.03f);
             cam.nearClipPlane = 0.05f;
-            cam.farClipPlane = 120f;
+            cam.farClipPlane = 140f;
             camGO.AddComponent<AudioListener>();
             camGO.tag = "MainCamera";
 
@@ -156,7 +298,7 @@ namespace FearMe.EditorTools
             lightGO.transform.SetParent(camGO.transform, false);
             Light beam = lightGO.AddComponent<Light>();
             beam.type = LightType.Spot;
-            beam.range = 22f;
+            beam.range = 24f;
             beam.spotAngle = 55f;
             beam.intensity = 4.5f;
             beam.color = new Color(1f, 0.96f, 0.85f);
@@ -179,16 +321,17 @@ namespace FearMe.EditorTools
             GameObject routeGO = new GameObject("PatrolRoute");
             PatrolRoute route = routeGO.AddComponent<PatrolRoute>();
 
+            // A tour of the corridor grid, so the stalker sweeps the whole floor.
             Vector3[] points =
             {
-                new Vector3(-15f, 0f, 15f),
-                new Vector3(0f, 0f, 15f),
-                new Vector3(15f, 0f, 15f),
-                new Vector3(15f, 0f, 0f),
-                new Vector3(15f, 0f, -15f),
-                new Vector3(0f, 0f, -15f),
-                new Vector3(-15f, 0f, -15f),
-                new Vector3(-15f, 0f, 0f)
+                new Vector3(0f, 0f, -25f),
+                new Vector3(-25f, 0f, -10f),
+                new Vector3(-25f, 0f, 25f),
+                new Vector3(0f, 0f, 25f),
+                new Vector3(25f, 0f, 25f),
+                new Vector3(25f, 0f, 10f),
+                new Vector3(25f, 0f, -10f),
+                new Vector3(0f, 0f, -10f)
             };
 
             Transform[] waypoints = new Transform[points.Length];
@@ -208,7 +351,7 @@ namespace FearMe.EditorTools
         {
             GameObject enemy = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             enemy.name = "Stalker";
-            enemy.transform.position = new Vector3(14f, 1f, 14f);
+            enemy.transform.position = new Vector3(25f, 1f, 20f);
             enemy.GetComponent<Renderer>().sharedMaterial = mat;
 
             NavMeshAgent agent = enemy.AddComponent<NavMeshAgent>();
@@ -229,6 +372,8 @@ namespace FearMe.EditorTools
             SetObjectField(ai, "patrolRoute", route);
             SetObjectField(ai, "eyes", eyes.transform);
             SetIntField(ai, "obstructionMask", levelMask);
+            // Corridors are long, so it can spot you from further away here.
+            SetFloatField(ai, "viewDistance", 18f);
             // Agent pivot rides 1m above the player's, so allow for that vertical gap.
             SetFloatField(ai, "catchDistance", 2f);
 
@@ -351,6 +496,59 @@ namespace FearMe.EditorTools
             // Index 0 so GameOverController's reload-by-build-index works.
             scenes.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
             EditorBuildSettings.scenes = scenes.ToArray();
+        }
+
+        private static List<Vector2> CorridorGaps(Vector2[] crossings)
+        {
+            return new List<Vector2>(crossings);
+        }
+
+        private static void AddDoor(List<Vector2> gaps, float center)
+        {
+            gaps.Add(new Vector2(center - DoorHalfWidth, center + DoorHalfWidth));
+        }
+
+        // Builds a straight wall along one axis, skipping any gap intervals.
+        private static void BuildWallRun(Transform parent, string name, bool alongX, float fixedCoord,
+            float start, float end, List<Vector2> gaps, int layer, Material mat)
+        {
+            List<Vector2> sorted = gaps != null ? new List<Vector2>(gaps) : new List<Vector2>();
+            sorted.Sort((a, b) => a.x.CompareTo(b.x));
+
+            float cursor = start;
+            int index = 0;
+
+            foreach (Vector2 gap in sorted)
+            {
+                float gapStart = Mathf.Max(gap.x, start);
+                float gapEnd = Mathf.Min(gap.y, end);
+                if (gapEnd <= cursor) continue;
+
+                if (gapStart > cursor)
+                    CreateWallSegment(parent, name + "_" + index++, alongX, fixedCoord, cursor, gapStart, layer, mat);
+
+                cursor = gapEnd;
+            }
+
+            if (cursor < end)
+                CreateWallSegment(parent, name + "_" + index, alongX, fixedCoord, cursor, end, layer, mat);
+        }
+
+        private static void CreateWallSegment(Transform parent, string name, bool alongX, float fixedCoord,
+            float from, float to, int layer, Material mat)
+        {
+            float length = to - from;
+            if (length < 0.05f) return;
+
+            float mid = (from + to) * 0.5f;
+            Vector3 center = alongX
+                ? new Vector3(mid, WallY, fixedCoord)
+                : new Vector3(fixedCoord, WallY, mid);
+            Vector3 size = alongX
+                ? new Vector3(length, WallHeight, WallThickness)
+                : new Vector3(WallThickness, WallHeight, length);
+
+            CreateBox(parent, name, center, size, layer, mat);
         }
 
         private static GameObject CreateBox(Transform parent, string name, Vector3 position, Vector3 size, int layer, Material mat)
