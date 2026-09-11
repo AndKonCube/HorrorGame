@@ -63,11 +63,19 @@ namespace FearMe.EditorTools
         // Used by the scene builder, which has its own material and parent.
         internal static void PlaceAllSpots(Transform parent, Material material, ObjectiveTracker tracker)
         {
+            PlaceSpots(parent, material, tracker, Spots);
+        }
+
+        // Positions supplied by the caller, for an environment whose layout
+        // is not known ahead of time.
+        internal static void PlaceSpots(Transform parent, Material material,
+            ObjectiveTracker tracker, IList<Vector3> positions)
+        {
             GameObject root = new GameObject("KeySpots");
-            root.transform.SetParent(parent, false);
+            if (parent != null) root.transform.SetParent(parent, false);
 
             List<KeyItem> keys = new List<KeyItem>();
-            foreach (Vector3 spot in Spots)
+            foreach (Vector3 spot in positions)
                 keys.Add(CreateKey(root.transform, spot, material));
 
             KeySpawner spawner = root.AddComponent<KeySpawner>();
