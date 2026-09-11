@@ -6,7 +6,6 @@ namespace FearMe.AI
     public class PatrolRoute : MonoBehaviour
     {
         [SerializeField] private Transform[] waypoints;
-
         public int Count => waypoints != null ? waypoints.Length : 0;
 
         public Transform GetWaypoint(int index)
