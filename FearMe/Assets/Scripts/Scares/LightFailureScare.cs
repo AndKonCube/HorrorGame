@@ -17,21 +17,20 @@ namespace FearMe.Scares
 
         private Coroutine active;
 
-        protected override void OnTrigger(ScareContext context)
+        protected override bool OnTrigger(ScareContext context)
         {
-            if (active != null) return;
-            active = StartCoroutine(Fail(context));
+            if (active != null) return false;
+
+            // No lights in range means no scare; let another one take the slot.
+            List<Light> affected = CollectLights(context);
+            if (affected.Count == 0) return false;
+
+            active = StartCoroutine(Fail(affected));
+            return true;
         }
 
-        private IEnumerator Fail(ScareContext context)
+        private IEnumerator Fail(List<Light> affected)
         {
-            List<Light> affected = CollectLights(context);
-            if (affected.Count == 0)
-            {
-                active = null;
-                yield break;
-            }
-
             // Idle flicker would fight us for control of enabled, so pause it.
             List<FlickeringLight> paused = PauseFlicker(affected);
 

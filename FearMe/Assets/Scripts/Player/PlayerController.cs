@@ -1,3 +1,4 @@
+using FearMe.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -16,7 +17,6 @@ namespace FearMe.Player
 
         [Header("Look")]
         [SerializeField] private Camera playerCamera;
-        [SerializeField] private float mouseSensitivity = 0.12f;
         [SerializeField] private float maxLookAngle = 85f;
 
         [Header("Crouch")]
@@ -108,9 +108,14 @@ namespace FearMe.Player
         {
             Vector2 lookInput = lookAction.ReadValue<Vector2>();
 
-            transform.Rotate(Vector3.up * (lookInput.x * mouseSensitivity));
+            // Sensitivity is a saved player preference, not a scene value.
+            GameSettings settings = SettingsService.Current;
+            float sensitivity = settings.mouseSensitivity;
+            float vertical = settings.invertLook ? -1f : 1f;
 
-            pitch -= lookInput.y * mouseSensitivity;
+            transform.Rotate(Vector3.up * (lookInput.x * sensitivity));
+
+            pitch -= lookInput.y * sensitivity * vertical;
             pitch = Mathf.Clamp(pitch, -maxLookAngle, maxLookAngle);
             if (playerCamera != null)
                 playerCamera.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
