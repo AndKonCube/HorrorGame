@@ -38,6 +38,7 @@ namespace FearMe.EditorTools
 
             BuildCamera();
             BuildEventSystem();
+            AssignMenuTracks(CreateMenuMusic());
 
             Canvas canvas = BuildCanvas();
             CreateStretchedImage(canvas.transform, "Background", new Color(0.03f, 0.03f, 0.04f, 1f));
@@ -65,6 +66,58 @@ namespace FearMe.EditorTools
             Debug.Log("[FearMe] Main menu built at " + ScenePath +
                 ". It is now scene 0, so the game boots into the menu. Preferences save to " +
                 GameSettingsService.FileName + " under the player's persistent data path.");
+        }
+
+        // For a menu scene that already exists, so it is not rebuilt from scratch.
+        [MenuItem("Tools/FearMe/Wire Menu Music (current scene)")]
+        public static void WireMenuMusicInCurrentScene()
+        {
+            MenuMusic music = Object.FindFirstObjectByType<MenuMusic>();
+            if (music == null) music = CreateMenuMusic();
+
+            AssignMenuTracks(music);
+
+            if (Object.FindFirstObjectByType<AudioListener>() == null)
+                Debug.LogWarning("[FearMe] No AudioListener in this scene; the menu will be silent.");
+
+            EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+            Debug.Log("[FearMe] Menu music wired. Save the scene to keep it.");
+        }
+
+        private static MenuMusic CreateMenuMusic()
+        {
+            GameObject go = new GameObject("MenuMusic");
+
+            AudioSource source = go.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = false;
+            source.spatialBlend = 0f; // 2D
+
+            MenuMusic music = go.AddComponent<MenuMusic>();
+
+            // Category.Ambient, so the music slider drives it live.
+            AudioCategoryVolume category = go.AddComponent<AudioCategoryVolume>();
+            SetEnumField(category, "category", (int)AudioCategoryVolume.Category.Ambient);
+
+            return music;
+        }
+
+        private static void AssignMenuTracks(MenuMusic music)
+        {
+            List<Object> calm = new List<Object>();
+            List<Object> tense = new List<Object>();
+
+            if (!AmbientAudioSetup.CategoriseAudio(null, calm, tense))
+            {
+                Debug.LogWarning("[FearMe] No Assets/Audio folder; assign menu tracks by hand.");
+                return;
+            }
+
+            // Prefer the calmer pads; fall back to whatever exists.
+            List<Object> chosen = calm.Count > 0 ? calm : tense;
+            SetObjectArrayField(music, "tracks", chosen.ToArray());
+
+            Debug.Log($"[FearMe] Menu music: {chosen.Count} track(s).");
         }
 
         private static void BuildCamera()
@@ -338,6 +391,27 @@ namespace FearMe.EditorTools
                 return;
             }
             prop.objectReferenceValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetObjectArrayField(Object target, string fieldName, Object[] values)
+        {
+            SerializedObject so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null) return;
+
+            prop.arraySize = values.Length;
+            for (int i = 0; i < values.Length; i++)
+                prop.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetEnumField(Object target, string fieldName, int enumIndex)
+        {
+            SerializedObject so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null) return;
+            prop.enumValueIndex = enumIndex;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 

@@ -68,25 +68,34 @@ namespace FearMe.EditorTools
 
         private static void AssignClips(AmbientAudioController controller)
         {
-            if (!AssetDatabase.IsValidFolder(AudioFolder))
+            List<Object> calm = new List<Object>();
+            List<Object> tense = new List<Object>();
+
+            if (!CategoriseAudio(FindStinger(), calm, tense))
             {
                 Debug.LogWarning("[FearMe] No " + AudioFolder + " folder; assign ambient clips by hand.");
                 return;
             }
 
-            string[] guids = AssetDatabase.FindAssets("t:AudioClip", new[] { AudioFolder });
-            AudioClip stinger = FindStinger();
+            SetObjectArrayField(controller, "calmTracks", calm.ToArray());
+            SetObjectArrayField(controller, "tensionTracks", tense.ToArray());
 
-            List<Object> calm = new List<Object>();
-            List<Object> tense = new List<Object>();
+            Debug.Log($"[FearMe] Ambient bed: {calm.Count} track(s), tension layer: {tense.Count} track(s).");
+        }
 
-            foreach (string guid in guids)
+        // Shared with the menu builder so the naming rules live in one place.
+        // Returns false when there is no audio folder to read.
+        internal static bool CategoriseAudio(AudioClip exclude, List<Object> calm, List<Object> tense)
+        {
+            if (!AssetDatabase.IsValidFolder(AudioFolder)) return false;
+
+            foreach (string guid in AssetDatabase.FindAssets("t:AudioClip", new[] { AudioFolder }))
             {
                 AudioClip clip = AssetDatabase.LoadAssetAtPath<AudioClip>(AssetDatabase.GUIDToAssetPath(guid));
                 if (clip == null) continue;
 
                 // The jumpscare clip must not double as atmosphere.
-                if (clip == stinger) continue;
+                if (exclude != null && clip == exclude) continue;
 
                 string name = clip.name.ToLowerInvariant();
                 if (MatchesAny(name, SkipKeywords)) continue;
@@ -95,10 +104,7 @@ namespace FearMe.EditorTools
                 else calm.Add(clip);
             }
 
-            SetObjectArrayField(controller, "calmTracks", calm.ToArray());
-            SetObjectArrayField(controller, "tensionTracks", tense.ToArray());
-
-            Debug.Log($"[FearMe] Ambient bed: {calm.Count} track(s), tension layer: {tense.Count} track(s).");
+            return true;
         }
 
         private static AudioClip FindStinger()
