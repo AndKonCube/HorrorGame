@@ -98,7 +98,8 @@ namespace FearMe.EditorTools
             BakeNavMesh(levelMask);
 
             // After the bake: apparition placement samples the NavMesh.
-            BuildScares(player, enemy, levelMask);
+            ScareDirector director = BuildScares(player, enemy, levelMask);
+            AmbientAudioSetup.Configure(AmbientAudioSetup.CreateController(), director);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -539,7 +540,7 @@ namespace FearMe.EditorTools
             SetFogProfile(zone, "profile", label, density, color, hazeRate, 1.2f);
         }
 
-        private static void BuildScares(GameObject player, EnemyStalkerAI enemy, int levelMask)
+        private static ScareDirector BuildScares(GameObject player, EnemyStalkerAI enemy, int levelMask)
         {
             GameObject apparition = BuildApparition();
 
@@ -573,6 +574,8 @@ namespace FearMe.EditorTools
             SetObjectField(director, "stalker", enemy.transform);
             SetObjectArrayField(director, "scares",
                 new Object[] { apparitionScare, lightScare, whisper, distant });
+
+            return director;
         }
 
         private static GameObject BuildApparition()
