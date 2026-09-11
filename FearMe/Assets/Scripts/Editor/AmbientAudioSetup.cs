@@ -16,6 +16,9 @@ namespace FearMe.EditorTools
     {
         private const string AudioFolder = "Assets/Audio";
 
+        // Anything shorter than this is treated as an effect, not music.
+        private const float MinMusicSeconds = 10f;
+
         // Names that suggest a driving or stinger-like track rather than a pad.
         private static readonly string[] TenseKeywords = { "action", "getout", "re8", "conjuring", "horrormane" };
         private static readonly string[] SkipKeywords = { "typewriter" };
@@ -27,6 +30,7 @@ namespace FearMe.EditorTools
             if (controller == null) controller = CreateController();
 
             Configure(controller, Object.FindFirstObjectByType<ScareDirector>());
+            AssignScareClips();
             SilenceStrayStartupAudio(controller);
             TagEffectSources(controller);
 
@@ -83,9 +87,13 @@ namespace FearMe.EditorTools
             Debug.Log($"[FearMe] Ambient bed: {calm.Count} track(s), tension layer: {tense.Count} track(s).");
         }
 
-        // Shared with the menu builder so the naming rules live in one place.
+        // Shared with the menu builder so the sorting rules live in one place.
         // Returns false when there is no audio folder to read.
-        internal static bool CategoriseAudio(AudioClip exclude, List<Object> calm, List<Object> tense)
+        //
+        // Length decides music from effects: a two-second stinger played as an
+        // ambient pad is just a noise that fires every so often.
+        internal static bool CategoriseAudio(AudioClip exclude,
+            List<Object> calm, List<Object> tense, List<Object> stingers = null)
         {
             if (!AssetDatabase.IsValidFolder(AudioFolder)) return false;
 
@@ -100,11 +108,65 @@ namespace FearMe.EditorTools
                 string name = clip.name.ToLowerInvariant();
                 if (MatchesAny(name, SkipKeywords)) continue;
 
+                if (clip.length < MinMusicSeconds)
+                {
+                    stingers?.Add(clip);
+                    continue;
+                }
+
                 if (MatchesAny(name, TenseKeywords)) tense.Add(clip);
                 else calm.Add(clip);
             }
 
             return true;
+        }
+
+        // Short clips are the scare cues the apparition and sound scares needed.
+        internal static void AssignScareClips()
+        {
+            List<Object> calm = new List<Object>();
+            List<Object> tense = new List<Object>();
+            List<Object> stingers = new List<Object>();
+
+            if (!CategoriseAudio(null, calm, tense, stingers)) return;
+
+            if (stingers.Count == 0)
+            {
+                Debug.Log("[FearMe] No short clips found, so the scares stay silent for now.");
+                return;
+            }
+
+            Object[] cues = stingers.ToArray();
+            int wired = 0;
+
+            foreach (ApparitionScare scare in Object.FindObjectsByType<ApparitionScare>(FindObjectsSortMode.None))
+            {
+                SetObjectArrayField(scare, "cueClips", cues);
+                wired++;
+            }
+
+            foreach (PositionalSoundScare scare in Object.FindObjectsByType<PositionalSoundScare>(FindObjectsSortMode.None))
+            {
+                SetObjectArrayField(scare, "clips", cues);
+                wired++;
+            }
+
+            AssignJumpscareIfEmpty(cues);
+
+            Debug.Log($"[FearMe] {cues.Length} short clip(s) wired into {wired} scare component(s).");
+        }
+
+        // Never overwrite a sting that has already been chosen by hand.
+        private static void AssignJumpscareIfEmpty(Object[] cues)
+        {
+            GameOverController flow = Object.FindFirstObjectByType<GameOverController>();
+            if (flow == null) return;
+
+            AudioSource source = flow.GetComponent<AudioSource>();
+            if (source == null || source.clip != null) return;
+
+            source.clip = cues[0] as AudioClip;
+            Debug.Log("[FearMe] Jumpscare had no clip; assigned " + source.clip.name + ".");
         }
 
         private static AudioClip FindStinger()

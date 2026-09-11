@@ -100,6 +100,7 @@ namespace FearMe.EditorTools
             // After the bake: apparition placement samples the NavMesh.
             ScareDirector director = BuildScares(player, enemy, levelMask);
             AmbientAudioSetup.Configure(AmbientAudioSetup.CreateController(), director);
+            AmbientAudioSetup.AssignScareClips();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
