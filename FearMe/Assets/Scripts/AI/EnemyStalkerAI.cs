@@ -34,6 +34,8 @@ namespace FearMe.AI
         [SerializeField] private float loseSightGrace = 1.5f;
         [SerializeField] private float searchDuration = 6f;
         [SerializeField] private float catchDistance = 1.0f;
+        [Tooltip("Give up on a waypoint after this long and move to the next.")]
+        [SerializeField] private float waypointTimeout = 12f;
 
         [Header("Events")]
         public UnityEvent onPlayerCaught;
@@ -45,6 +47,7 @@ namespace FearMe.AI
         private float stateTimer;
         private float sightLostTimer;
         private bool warnedOffMesh;
+        private float destinationSetAt;
 
         private void Awake()
         {
@@ -132,8 +135,32 @@ namespace FearMe.AI
             // Reached from Start, before Update's off-mesh guard can run.
             if (!agent.isOnNavMesh) return;
 
-            agent.SetDestination(patrolRoute.GetWaypoint(patrolIndex).position);
+            SetDestinationOnMesh(patrolRoute.GetWaypoint(patrolIndex).position);
             patrolIndex++;
+        }
+
+        // Waypoints get hand-placed slightly off the floor, which yields a
+        // partial path the agent can never finish, so snap the target down
+        // onto the mesh before asking for it.
+        private void SetDestinationOnMesh(Vector3 target)
+        {
+            if (NavMesh.SamplePosition(target, out NavMeshHit hit, 6f, NavMesh.AllAreas))
+                target = hit.position;
+
+            destinationSetAt = Time.time;
+            agent.SetDestination(target);
+        }
+
+        // A partial or invalid path never closes the remaining distance.
+        // Without treating that as "done", one unreachable waypoint stalls
+        // the patrol for the rest of the run.
+        private bool ReachedDestination()
+        {
+            if (agent.pathPending) return false;
+            if (agent.pathStatus != NavMeshPathStatus.PathComplete) return true;
+            if (Time.time - destinationSetAt > waypointTimeout) return true;
+
+            return agent.remainingDistance <= Mathf.Max(0.5f, agent.stoppingDistance);
         }
 
         private void TickPatrol(bool canSee, bool canHear)
@@ -141,7 +168,7 @@ namespace FearMe.AI
             if (canSee) { EnterChase(); return; }
             if (canHear) { EnterInvestigate(player.transform.position); return; }
 
-            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
+            if (ReachedDestination())
                 GoToNextPatrolPoint();
         }
 
@@ -150,7 +177,7 @@ namespace FearMe.AI
             state = State.Investigate;
             agent.speed = investigateSpeed;
             lastKnownPosition = location;
-            agent.SetDestination(lastKnownPosition);
+            SetDestinationOnMesh(lastKnownPosition);
             stateTimer = 0f;
         }
 
@@ -160,12 +187,12 @@ namespace FearMe.AI
             if (canHear)
             {
                 lastKnownPosition = player.transform.position;
-                agent.SetDestination(lastKnownPosition);
+                SetDestinationOnMesh(lastKnownPosition);
                 stateTimer = 0f;
                 return;
             }
 
-            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
+            if (ReachedDestination())
             {
                 stateTimer += Time.deltaTime;
                 if (stateTimer >= investigateWaitTime) EnterPatrol();
@@ -184,7 +211,7 @@ namespace FearMe.AI
             if (canSee)
             {
                 lastKnownPosition = player.transform.position;
-                agent.SetDestination(lastKnownPosition);
+                SetDestinationOnMesh(lastKnownPosition);
                 sightLostTimer = 0f;
             }
             else
@@ -198,7 +225,7 @@ namespace FearMe.AI
         {
             state = State.Search;
             agent.speed = investigateSpeed;
-            agent.SetDestination(lastKnownPosition);
+            SetDestinationOnMesh(lastKnownPosition);
             stateTimer = 0f;
         }
 
@@ -207,7 +234,7 @@ namespace FearMe.AI
             if (canSee) { EnterChase(); return; }
             if (canHear) { EnterInvestigate(player.transform.position); return; }
 
-            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
+            if (ReachedDestination())
             {
                 stateTimer += Time.deltaTime;
                 if (stateTimer >= searchDuration) EnterPatrol();

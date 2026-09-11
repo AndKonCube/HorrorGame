@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using FearMe.AI;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -37,6 +38,8 @@ namespace FearMe.EditorTools
 
             PersistData(surface);
             SnapAgents();
+            SnapWaypoints();
+            FixStalkerVision(levelLayer);
             Report();
 
             EditorUtility.SetDirty(surface);
@@ -133,6 +136,62 @@ namespace FearMe.EditorTools
                 Undo.RecordObject(agent.transform, "Snap agent to NavMesh");
                 agent.transform.position = placed;
                 Debug.Log($"[FearMe] Moved '{agent.name}' onto the NavMesh.");
+            }
+        }
+
+        // A waypoint even slightly off the floor gives a path the agent can
+        // never complete, which stalls the patrol where it stands.
+        private static void SnapWaypoints()
+        {
+            int moved = 0;
+            int stranded = 0;
+
+            foreach (PatrolRoute route in Object.FindObjectsByType<PatrolRoute>(FindObjectsSortMode.None))
+            {
+                SerializedObject so = new SerializedObject(route);
+                SerializedProperty list = so.FindProperty("waypoints");
+                if (list == null) continue;
+
+                for (int i = 0; i < list.arraySize; i++)
+                {
+                    Transform waypoint = list.GetArrayElementAtIndex(i).objectReferenceValue as Transform;
+                    if (waypoint == null) continue;
+
+                    if (!NavMesh.SamplePosition(waypoint.position, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                    {
+                        Debug.LogWarning("[FearMe] '" + waypoint.name + "' has no NavMesh within 10m; " +
+                            "the patrol will skip it. Move it over walkable floor.", waypoint);
+                        stranded++;
+                        continue;
+                    }
+
+                    if ((hit.position - waypoint.position).sqrMagnitude < 0.0025f) continue;
+
+                    Undo.RecordObject(waypoint, "Snap waypoint to NavMesh");
+                    waypoint.position = hit.position;
+                    moved++;
+                }
+            }
+
+            if (moved > 0 || stranded > 0)
+                Debug.Log($"[FearMe] Snapped {moved} patrol waypoint(s) onto the NavMesh; {stranded} stranded.");
+        }
+
+        // A vision mask of Nothing makes the line-of-sight ray hit nothing,
+        // so the stalker sees straight through walls.
+        private static void FixStalkerVision(int levelLayer)
+        {
+            foreach (EnemyStalkerAI stalker in Object.FindObjectsByType<EnemyStalkerAI>(FindObjectsSortMode.None))
+            {
+                SerializedObject so = new SerializedObject(stalker);
+                SerializedProperty mask = so.FindProperty("obstructionMask");
+                if (mask == null || mask.intValue != 0) continue;
+
+                mask.intValue = 1 << levelLayer;
+                so.ApplyModifiedPropertiesWithoutUndo();
+
+                Debug.LogWarning("[FearMe] '" + stalker.name + "' had no vision blockers set, so it could " +
+                    "see through walls. Pointed it at the " + LevelLayerName + " layer.", stalker);
             }
         }
 
