@@ -7,7 +7,7 @@ namespace FearMe.Settings
     // Player preferences, held once and written to
     // <persistentDataPath>/settings.json. Loads before the first scene so
     // audio never plays a frame at the wrong volume.
-    public static class SettingsService
+    public static class GameSettingsService
     {
         public const string FileName = "settings.json";
 

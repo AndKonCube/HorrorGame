@@ -25,7 +25,7 @@ namespace FearMe.UI
 
         private void OnEnable()
         {
-            GameSettings settings = SettingsService.Current;
+            GameSettings settings = GameSettingsService.Current;
 
             binding = true;
             if (masterSlider != null) masterSlider.value = settings.masterVolume;
@@ -73,45 +73,45 @@ namespace FearMe.UI
         private void OnMasterChanged(float value)
         {
             if (binding) return;
-            SettingsService.Current.masterVolume = value;
-            SettingsService.Apply();
+            GameSettingsService.Current.masterVolume = value;
+            GameSettingsService.Apply();
             RefreshLabels();
         }
 
         private void OnAmbientChanged(float value)
         {
             if (binding) return;
-            SettingsService.Current.ambientVolume = value;
-            SettingsService.Apply();
+            GameSettingsService.Current.ambientVolume = value;
+            GameSettingsService.Apply();
             RefreshLabels();
         }
 
         private void OnSfxChanged(float value)
         {
             if (binding) return;
-            SettingsService.Current.sfxVolume = value;
-            SettingsService.Apply();
+            GameSettingsService.Current.sfxVolume = value;
+            GameSettingsService.Apply();
             RefreshLabels();
         }
 
         private void OnSensitivityChanged(float value)
         {
             if (binding) return;
-            SettingsService.Current.mouseSensitivity = value;
-            SettingsService.Apply();
+            GameSettingsService.Current.mouseSensitivity = value;
+            GameSettingsService.Apply();
             RefreshLabels();
         }
 
         private void OnInvertChanged(bool value)
         {
             if (binding) return;
-            SettingsService.Current.invertLook = value;
-            SettingsService.Apply();
+            GameSettingsService.Current.invertLook = value;
+            GameSettingsService.Apply();
         }
 
         private void RefreshLabels()
         {
-            GameSettings settings = SettingsService.Current;
+            GameSettings settings = GameSettingsService.Current;
             SetText(masterValue, Percent(settings.masterVolume));
             SetText(ambientValue, Percent(settings.ambientVolume));
             SetText(sfxValue, Percent(settings.sfxVolume));
