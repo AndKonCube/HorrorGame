@@ -76,9 +76,9 @@ namespace FearMe.EditorTools
             Transform level = BuildLevel(levelLayer, floorMat, wallMat, doorMat, propMat);
             BuildCeilingLights(level);
 
-            GameObject player = BuildPlayer();
+            GameObject player = BuildPlayer(new Vector3(0f, 0.1f, -27f));
             PatrolRoute route = BuildPatrolRoute();
-            EnemyStalkerAI enemy = BuildEnemy(enemyMat, player.GetComponent<PlayerController>(), route, levelMask);
+            EnemyStalkerAI enemy = BuildEnemy(enemyMat, player.GetComponent<PlayerController>(), route, levelMask, new Vector3(25f, 1f, 20f));
 
             // Alcoves to break line of sight, spread across the wings.
             BuildHidingSpot(level, new Vector3(-18f, 0f, 27f), 180f, levelLayer, wallMat);
@@ -110,7 +110,7 @@ namespace FearMe.EditorTools
             Debug.Log("[FearMe] Hospital demo scene built at " + ScenePath + ". Press Play to run it.");
         }
 
-        private static void BuildAtmosphere()
+        internal static void BuildAtmosphere()
         {
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
@@ -270,10 +270,10 @@ namespace FearMe.EditorTools
             }
         }
 
-        private static GameObject BuildPlayer()
+        internal static GameObject BuildPlayer(Vector3 spawn)
         {
             GameObject player = new GameObject("Player");
-            player.transform.position = new Vector3(0f, 0.1f, -27f);
+            player.transform.position = spawn;
 
             CharacterController cc = player.AddComponent<CharacterController>();
             cc.height = 1.8f;
@@ -356,11 +356,11 @@ namespace FearMe.EditorTools
             return route;
         }
 
-        private static EnemyStalkerAI BuildEnemy(Material mat, PlayerController player, PatrolRoute route, int levelMask)
+        internal static EnemyStalkerAI BuildEnemy(Material mat, PlayerController player, PatrolRoute route, int levelMask, Vector3 spawn)
         {
             GameObject enemy = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             enemy.name = "Stalker";
-            enemy.transform.position = new Vector3(25f, 1f, 20f);
+            enemy.transform.position = spawn;
             enemy.GetComponent<Renderer>().sharedMaterial = mat;
 
             NavMeshAgent agent = enemy.AddComponent<NavMeshAgent>();
@@ -410,7 +410,7 @@ namespace FearMe.EditorTools
             trigger.AddComponent<HidingSpot>();
         }
 
-        private static GameObject BuildManagers(GameObject player, EnemyStalkerAI enemy)
+        internal static GameObject BuildManagers(GameObject player, EnemyStalkerAI enemy)
         {
             GameObject managers = new GameObject("GameManager");
 
@@ -459,7 +459,7 @@ namespace FearMe.EditorTools
             return managers;
         }
 
-        private static void BuildFog(GameObject managers, Transform followTarget)
+        internal static void BuildFog(GameObject managers, Transform followTarget)
         {
             Material hazeMat = GetOrCreateHazeMaterial(GetOrCreateSoftParticleTexture());
             ParticleSystem haze = BuildGroundHaze(hazeMat);
@@ -524,7 +524,7 @@ namespace FearMe.EditorTools
             SetFogProfile(zone, "profile", label, density, color, hazeRate, 1.2f);
         }
 
-        private static ScareDirector BuildScares(GameObject player, EnemyStalkerAI enemy, int levelMask)
+        internal static ScareDirector BuildScares(GameObject player, EnemyStalkerAI enemy, int levelMask)
         {
             GameObject apparition = BuildApparition();
 
@@ -740,7 +740,7 @@ namespace FearMe.EditorTools
             return go;
         }
 
-        private static Material GetOrCreateMaterial(string name, Color color, bool emissive = false)
+        internal static Material GetOrCreateMaterial(string name, Color color, bool emissive = false)
         {
             if (!AssetDatabase.IsValidFolder(MaterialFolder))
                 AssetDatabase.CreateFolder("Assets", "Materials");
@@ -765,7 +765,7 @@ namespace FearMe.EditorTools
             return mat;
         }
 
-        private static int EnsureLayer(string layerName)
+        internal static int EnsureLayer(string layerName)
         {
             Object[] assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset");
             if (assets == null || assets.Length == 0) return 0;
