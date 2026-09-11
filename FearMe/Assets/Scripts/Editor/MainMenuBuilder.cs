@@ -14,7 +14,7 @@ using UnityEngine.UI;
 namespace FearMe.EditorTools
 {
     // Builds the main menu scene: title, Play / Settings / Quit, and a
-    // settings panel wired to SettingsService.
+    // settings panel wired to GameSettingsService.
     public static class MainMenuBuilder
     {
         private const string ScenePath = "Assets/Scenes/MainMenu.unity";
