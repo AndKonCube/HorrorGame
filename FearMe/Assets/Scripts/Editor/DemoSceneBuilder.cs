@@ -3,6 +3,7 @@ using FearMe.AI;
 using FearMe.Core;
 using FearMe.Player;
 using FearMe.Scares;
+using FearMe.Settings;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.Events;
@@ -457,6 +458,7 @@ namespace FearMe.EditorTools
 
             AudioSource stinger = managers.AddComponent<AudioSource>();
             stinger.playOnAwake = false;
+            managers.AddComponent<AudioCategoryVolume>(); // SFX slider reaches the sting
 
             GameOverController flow = managers.AddComponent<GameOverController>();
             SetObjectField(flow, "fadeCanvasGroup", group);
@@ -558,6 +560,7 @@ namespace FearMe.EditorTools
             scareSource.spatialBlend = 1f;
             scareSource.rolloffMode = AudioRolloffMode.Linear;
             scareSource.maxDistance = 45f;
+            audioGO.AddComponent<AudioCategoryVolume>();
 
             // Two flavours: something breathing behind you, something far off.
             PositionalSoundScare whisper = scaresGO.AddComponent<PositionalSoundScare>();
@@ -684,8 +687,9 @@ namespace FearMe.EditorTools
             List<EditorBuildSettingsScene> scenes = new List<EditorBuildSettingsScene>(EditorBuildSettings.scenes);
             if (scenes.Exists(s => s.path == ScenePath)) return;
 
-            // Index 0 so GameOverController's reload-by-build-index works.
-            scenes.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
+            // Appended, not inserted: the main menu keeps index 0 so the game
+            // boots into it. Reloading on death uses the active scene's index.
+            scenes.Add(new EditorBuildSettingsScene(ScenePath, true));
             EditorBuildSettings.scenes = scenes.ToArray();
         }
 

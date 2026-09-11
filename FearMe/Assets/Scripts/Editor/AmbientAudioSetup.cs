@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using FearMe.Core;
 using FearMe.Scares;
+using FearMe.Settings;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -27,6 +28,7 @@ namespace FearMe.EditorTools
 
             Configure(controller, Object.FindFirstObjectByType<ScareDirector>());
             SilenceStrayStartupAudio(controller);
+            TagEffectSources(controller);
 
             EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
             Debug.Log("[FearMe] Ambient audio wired. Save the scene to keep it.");
@@ -132,6 +134,26 @@ namespace FearMe.EditorTools
                         "' also plays on awake; delete it if it is a leftover ambience attempt.");
                 }
             }
+        }
+
+        // Everything that is not the ambient controller's own pair counts as an
+        // effect, so the SFX slider reaches it.
+        private static void TagEffectSources(AmbientAudioController controller)
+        {
+            int tagged = 0;
+
+            foreach (AudioSource source in Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
+            {
+                if (source == null) continue;
+                if (source.GetComponentInParent<AmbientAudioController>() == controller) continue;
+                if (source.GetComponent<AudioCategoryVolume>() != null) continue;
+
+                source.gameObject.AddComponent<AudioCategoryVolume>();
+                tagged++;
+            }
+
+            if (tagged > 0)
+                Debug.Log($"[FearMe] Put {tagged} effect source(s) under the SFX volume setting.");
         }
 
         private static bool MatchesAny(string name, string[] keywords)

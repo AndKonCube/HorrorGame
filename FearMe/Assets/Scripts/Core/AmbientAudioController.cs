@@ -1,5 +1,6 @@
 using System.Collections;
 using FearMe.Scares;
+using FearMe.Settings;
 using UnityEngine;
 
 namespace FearMe.Core
@@ -66,10 +67,14 @@ namespace FearMe.Core
         {
             float tension = director != null ? Mathf.Clamp01(director.Tension) : 0f;
 
+            // This controller writes volume every frame, so it applies the
+            // ambient setting itself rather than using AudioCategoryVolume.
+            float ambientScale = SettingsService.Current.ambientVolume;
+
             if (tensionSource != null)
             {
                 float target = tension > tensionOnset
-                    ? Mathf.InverseLerp(tensionOnset, 1f, tension) * tensionVolume
+                    ? Mathf.InverseLerp(tensionOnset, 1f, tension) * tensionVolume * ambientScale
                     : 0f;
                 tensionSource.volume = Mathf.MoveTowards(
                     tensionSource.volume, target, tensionFadeSpeed * Time.deltaTime);
@@ -79,7 +84,7 @@ namespace FearMe.Core
             bedDuck = Mathf.MoveTowards(bedDuck, 1f - tension, tensionFadeSpeed * Time.deltaTime);
 
             if (bedSource != null)
-                bedSource.volume = bedVolume * bedFade * bedDuck;
+                bedSource.volume = bedVolume * bedFade * bedDuck * ambientScale;
         }
 
         private IEnumerator BedLoop()
