@@ -14,7 +14,7 @@ namespace FearMe.Scares
     {
         [SerializeField] private float weight = 1f;
         [Tooltip("Seconds before this particular scare can repeat.")]
-        [SerializeField] private float cooldown = 45f;
+        [SerializeField] private float cooldown = 30f;
 
         private float lastPlayed;
 
@@ -25,12 +25,17 @@ namespace FearMe.Scares
             return Time.time >= lastPlayed + cooldown;
         }
 
-        public void Trigger(ScareContext context)
+        // Returns false when the scare could not actually stage itself, so a
+        // failed attempt neither burns the cooldown nor wastes the director's
+        // turn - it can hand the slot to another scare instead.
+        public bool Trigger(ScareContext context)
         {
+            if (!OnTrigger(context)) return false;
+
             lastPlayed = Time.time;
-            OnTrigger(context);
+            return true;
         }
 
-        protected abstract void OnTrigger(ScareContext context);
+        protected abstract bool OnTrigger(ScareContext context);
     }
 }

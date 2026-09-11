@@ -15,14 +15,16 @@ namespace FearMe.Scares
         [SerializeField] private LayerMask obstructionMask;
 
         [Header("Placement")]
-        [SerializeField] private float minDistance = 9f;
+        [SerializeField] private float minDistance = 7f;
         [SerializeField] private float maxDistance = 18f;
-        [SerializeField] private float minViewAngle = 18f;
-        [SerializeField] private float maxViewAngle = 50f;
-        [SerializeField] private int placementAttempts = 12;
+        [SerializeField] private float minViewAngle = 12f;
+        [SerializeField] private float maxViewAngle = 85f;
+        [Tooltip("Chance of standing behind the player instead, to be found on turning round.")]
+        [SerializeField, Range(0f, 1f)] private float behindChance = 0.3f;
+        [SerializeField] private int placementAttempts = 24;
 
         [Header("Behaviour")]
-        [SerializeField] private float maxVisibleTime = 3.5f;
+        [SerializeField] private float maxVisibleTime = 6f;
         [SerializeField] private float lookedAtAngle = 10f;
         [SerializeField] private float fogPulse = 0.03f;
 
@@ -34,11 +36,13 @@ namespace FearMe.Scares
             return base.CanPlay(context) && apparition != null && !context.PlayerHidden;
         }
 
-        protected override void OnTrigger(ScareContext context)
+        protected override bool OnTrigger(ScareContext context)
         {
-            if (active != null) return;
-            if (!TryFindSpot(context, out Vector3 spot)) return;
+            if (active != null) return false;
+            if (!TryFindSpot(context, out Vector3 spot)) return false;
+
             active = StartCoroutine(Appear(context, spot));
+            return true;
         }
 
         private bool TryFindSpot(ScareContext context, out Vector3 spot)
@@ -53,7 +57,13 @@ namespace FearMe.Scares
 
             for (int i = 0; i < placementAttempts; i++)
             {
-                float angle = Random.Range(minViewAngle, maxViewAngle) * (Random.value < 0.5f ? -1f : 1f);
+                // Mostly at the edge of vision; sometimes squarely behind, so
+                // turning round is its own kind of scare.
+                float spread = Random.value < behindChance
+                    ? Random.Range(120f, 180f)
+                    : Random.Range(minViewAngle, maxViewAngle);
+
+                float angle = spread * (Random.value < 0.5f ? -1f : 1f);
                 float distance = Random.Range(minDistance, maxDistance);
 
                 Vector3 direction = Quaternion.AngleAxis(angle, Vector3.up) * forward;

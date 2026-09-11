@@ -32,13 +32,14 @@ namespace FearMe.Scares
             return base.CanPlay(context) && source != null && clips != null && clips.Length > 0;
         }
 
-        protected override void OnTrigger(ScareContext context)
+        protected override bool OnTrigger(ScareContext context)
         {
-            if (source == null || clips == null || clips.Length == 0) return;
+            if (source == null || clips == null || clips.Length == 0) return false;
 
             source.transform.position = ChoosePosition(context);
             source.clip = clips[Random.Range(0, clips.Length)];
             source.Play();
+            return true;
         }
 
         private Vector3 ChoosePosition(ScareContext context)

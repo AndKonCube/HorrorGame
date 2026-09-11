@@ -18,9 +18,9 @@ namespace FearMe.Scares
         [SerializeField] private List<ScareEvent> scares = new List<ScareEvent>();
 
         [Header("Pacing")]
-        [SerializeField] private float calmBeforeScare = 12f;
-        [SerializeField] private float minSecondsBetweenScares = 25f;
-        [SerializeField] private float maxSecondsBetweenScares = 55f;
+        [SerializeField] private float calmBeforeScare = 8f;
+        [SerializeField] private float minSecondsBetweenScares = 18f;
+        [SerializeField] private float maxSecondsBetweenScares = 38f;
         [Tooltip("Scares only fire while tension sits below this.")]
         [SerializeField, Range(0f, 1f)] private float tensionCeiling = 0.35f;
 
@@ -71,34 +71,48 @@ namespace FearMe.Scares
         {
             ScareContext context = BuildContext();
 
-            float totalWeight = 0f;
             List<ScareEvent> candidates = new List<ScareEvent>();
             foreach (ScareEvent scare in scares)
             {
                 if (scare == null || !scare.CanPlay(context)) continue;
                 candidates.Add(scare);
-                totalWeight += Mathf.Max(0.01f, scare.Weight);
             }
 
-            if (candidates.Count == 0)
+            // Keep trying down the list: a scare that cannot place itself
+            // hands the slot on rather than swallowing it.
+            while (candidates.Count > 0)
             {
-                // Nothing ready; look again shortly rather than every frame.
-                nextScareTime = Time.time + 5f;
-                return;
+                ScareEvent pick = WeightedPick(candidates);
+                if (pick == null) break;
+
+                if (pick.Trigger(context))
+                {
+                    calmTimer = 0f;
+                    nextScareTime = Time.time + Random.Range(minSecondsBetweenScares, maxSecondsBetweenScares);
+                    return;
+                }
+
+                candidates.Remove(pick);
             }
 
-            float roll = Random.Range(0f, totalWeight);
+            // Nothing could fire; look again shortly rather than every frame.
+            nextScareTime = Time.time + 5f;
+        }
+
+        private static ScareEvent WeightedPick(List<ScareEvent> candidates)
+        {
+            float total = 0f;
+            foreach (ScareEvent scare in candidates)
+                total += Mathf.Max(0.01f, scare.Weight);
+
+            float roll = Random.Range(0f, total);
             foreach (ScareEvent scare in candidates)
             {
                 roll -= Mathf.Max(0.01f, scare.Weight);
-                if (roll > 0f) continue;
-
-                scare.Trigger(context);
-                break;
+                if (roll <= 0f) return scare;
             }
 
-            calmTimer = 0f;
-            nextScareTime = Time.time + Random.Range(minSecondsBetweenScares, maxSecondsBetweenScares);
+            return candidates.Count > 0 ? candidates[candidates.Count - 1] : null;
         }
 
         private ScareContext BuildContext()
