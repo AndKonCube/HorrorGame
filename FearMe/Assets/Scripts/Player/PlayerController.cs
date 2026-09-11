@@ -109,7 +109,7 @@ namespace FearMe.Player
             Vector2 lookInput = lookAction.ReadValue<Vector2>();
 
             // Sensitivity is a saved player preference, not a scene value.
-            GameSettings settings = SettingsService.Current;
+            GameSettings settings = GameSettingsService.Current;
             float sensitivity = settings.mouseSensitivity;
             float vertical = settings.invertLook ? -1f : 1f;
 

@@ -28,20 +28,20 @@ namespace FearMe.Settings
 
         private void OnEnable()
         {
-            SettingsService.Changed += ApplyVolume;
+            GameSettingsService.Changed += ApplyVolume;
             ApplyVolume();
         }
 
         private void OnDisable()
         {
-            SettingsService.Changed -= ApplyVolume;
+            GameSettingsService.Changed -= ApplyVolume;
         }
 
         private void ApplyVolume()
         {
             if (source == null) return;
 
-            GameSettings settings = SettingsService.Current;
+            GameSettings settings = GameSettingsService.Current;
             float categoryVolume = category == Category.Ambient
                 ? settings.ambientVolume
                 : settings.sfxVolume;

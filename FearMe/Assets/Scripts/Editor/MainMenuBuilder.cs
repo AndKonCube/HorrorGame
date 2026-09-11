@@ -64,7 +64,7 @@ namespace FearMe.EditorTools
             AssetDatabase.SaveAssets();
             Debug.Log("[FearMe] Main menu built at " + ScenePath +
                 ". It is now scene 0, so the game boots into the menu. Preferences save to " +
-                SettingsService.FileName + " under the player's persistent data path.");
+                GameSettingsService.FileName + " under the player's persistent data path.");
         }
 
         private static void BuildCamera()

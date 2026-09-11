@@ -31,13 +31,13 @@ namespace FearMe.UI
 
         public void OnCloseSettings()
         {
-            SettingsService.Save();
+            GameSettingsService.Save();
             ShowMain();
         }
 
         public void OnQuit()
         {
-            SettingsService.Save();
+            GameSettingsService.Save();
             Application.Quit();
         }
 

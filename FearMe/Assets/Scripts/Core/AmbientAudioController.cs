@@ -69,7 +69,7 @@ namespace FearMe.Core
 
             // This controller writes volume every frame, so it applies the
             // ambient setting itself rather than using AudioCategoryVolume.
-            float ambientScale = SettingsService.Current.ambientVolume;
+            float ambientScale = GameSettingsService.Current.ambientVolume;
 
             if (tensionSource != null)
             {
