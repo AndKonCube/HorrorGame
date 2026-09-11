@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.IO;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -7,69 +9,80 @@ using UnityEngine.SceneManagement;
 
 namespace FearMe.EditorTools
 {
-    // Rebakes the NavMesh for whatever scene is open.
+    // Repairs and rebakes the NavMesh for the open scene.
     //
-    // The usual failure is the surface being restricted to the generated
-    // blockout's layer while the real geometry sits on Default, so it bakes
-    // nothing at all. This picks the layers that actually hold geometry and
-    // reports what came out, rather than silently producing an empty mesh.
+    // Written against the ways this actually breaks:
+    //   - several NavMeshSurfaces stacked up from repeated attempts, all with
+    //     the same agent type, baking over one another to nothing
+    //   - geometry sitting on a layer the surface does not collect
+    //   - ceilings collected too, giving a walkable surface on the roof
+    //   - agents left standing off the mesh, which spams "Failed to create
+    //     agent because it is not close enough to the NavMesh"
     public static class NavMeshSetup
     {
-        private const string DataPath = "Assets/Scenes/Demo_NavMesh.asset";
         private const string LevelLayerName = "Level";
 
         [MenuItem("Tools/FearMe/Rebake NavMesh (current scene)")]
         public static void RebakeCurrentScene()
         {
-            NavMeshSurface surface = Object.FindFirstObjectByType<NavMeshSurface>();
-            if (surface == null)
-            {
-                GameObject go = new GameObject("Navigation");
-                surface = go.AddComponent<NavMeshSurface>();
-                Debug.Log("[FearMe] No NavMeshSurface found; created one.");
-            }
+            NavMeshSurface surface = ConsolidateSurfaces();
+            if (surface == null) return;
+
+            PrepareLayers(out int levelLayer);
 
             surface.collectObjects = CollectObjects.All;
-            surface.layerMask = ChooseLayers();
-
+            // Level only: ceilings stay off this layer, so no walkable roofs.
+            surface.layerMask = 1 << levelLayer;
             surface.BuildNavMesh();
-            PersistData(surface);
 
-            Report(surface);
+            PersistData(surface);
+            SnapAgents();
+            Report();
 
             EditorUtility.SetDirty(surface);
             EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         }
 
-        // Prefer the dedicated Level layer, but only if the geometry is
-        // actually on it; otherwise take everything.
-        private static LayerMask ChooseLayers()
+        // One surface per agent type. Stacked duplicates bake over each other.
+        private static NavMeshSurface ConsolidateSurfaces()
         {
-            int levelLayer = LayerMask.NameToLayer(LevelLayerName);
-            if (levelLayer < 0)
+            NavMeshSurface[] surfaces = Object.FindObjectsByType<NavMeshSurface>(FindObjectsSortMode.None);
+
+            if (surfaces.Length == 0)
             {
-                Debug.Log("[FearMe] No '" + LevelLayerName + "' layer; baking all layers.");
-                return ~0;
+                GameObject go = new GameObject("Navigation");
+                Debug.Log("[FearMe] No NavMeshSurface found; created one.");
+                return go.AddComponent<NavMeshSurface>();
             }
 
-            int onLevelLayer = 0;
-            int total = 0;
+            if (surfaces.Length == 1) return surfaces[0];
 
-            foreach (MeshRenderer renderer in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            NavMeshSurface keep = surfaces[0];
+            for (int i = 1; i < surfaces.Length; i++)
             {
-                total++;
-                if (renderer.gameObject.layer == levelLayer) onLevelLayer++;
+                Undo.DestroyObjectImmediate(surfaces[i]);
             }
 
-            if (onLevelLayer >= 4)
+            Debug.LogWarning($"[FearMe] Found {surfaces.Length} NavMeshSurfaces in this scene and removed " +
+                $"{surfaces.Length - 1}. Several surfaces sharing one agent type bake over each other, " +
+                "which is why nothing was produced. Keeping the one on '" + keep.gameObject.name + "'.");
+
+            return keep;
+        }
+
+        private static void PrepareLayers(out int levelLayer)
+        {
+            int onLayer = LevelLayerSetup.CountOnLevelLayer();
+            if (onLayer >= 4)
             {
-                Debug.Log($"[FearMe] Baking the '{LevelLayerName}' layer ({onLevelLayer} of {total} renderers).");
-                return 1 << levelLayer;
+                levelLayer = LayerMask.NameToLayer(LevelLayerName);
+                Debug.Log($"[FearMe] Baking the {LevelLayerName} layer ({onLayer} meshes already on it).");
+                return;
             }
 
-            Debug.Log($"[FearMe] Only {onLevelLayer} of {total} renderers are on '{LevelLayerName}', " +
-                "so baking all layers instead. Agents with a NavMeshAgent are excluded automatically.");
-            return ~0;
+            int moved = LevelLayerSetup.AssignAllGeometry(out levelLayer);
+            Debug.Log($"[FearMe] Only {onLayer} mesh(es) were on {LevelLayerName}; moved {moved} more onto it " +
+                "(ceilings, the player, agents and pickups excluded).");
         }
 
         private static void PersistData(NavMeshSurface surface)
@@ -78,7 +91,7 @@ namespace FearMe.EditorTools
 
             if (!AssetDatabase.Contains(surface.navMeshData))
             {
-                AssetDatabase.CreateAsset(surface.navMeshData, DataPath);
+                AssetDatabase.CreateAsset(surface.navMeshData, DataPathForActiveScene());
             }
             else
             {
@@ -88,28 +101,56 @@ namespace FearMe.EditorTools
             AssetDatabase.SaveAssets();
         }
 
-        // An empty bake still "succeeds", so check there are triangles.
-        private static void Report(NavMeshSurface surface)
+        // Beside the scene it belongs to, so scenes cannot share one asset.
+        private static string DataPathForActiveScene()
+        {
+            Scene scene = SceneManager.GetActiveScene();
+            if (string.IsNullOrEmpty(scene.path))
+                return "Assets/Scenes/Untitled_NavMesh.asset";
+
+            string folder = Path.GetDirectoryName(scene.path).Replace('\\', '/');
+            return folder + "/" + scene.name + "_NavMesh.asset";
+        }
+
+        // The direct cause of "Failed to create agent": the agent's transform
+        // is not over the mesh. Put it there.
+        private static void SnapAgents()
+        {
+            foreach (NavMeshAgent agent in Object.FindObjectsByType<NavMeshAgent>(FindObjectsSortMode.None))
+            {
+                Vector3 groundLevel = agent.transform.position - Vector3.up * agent.baseOffset;
+
+                if (!NavMesh.SamplePosition(groundLevel, out NavMeshHit hit, 30f, NavMesh.AllAreas))
+                {
+                    Debug.LogWarning("[FearMe] No NavMesh within 30m of '" + agent.name +
+                        "'. Move it over walkable floor by hand.");
+                    continue;
+                }
+
+                Vector3 placed = hit.position + Vector3.up * agent.baseOffset;
+                if ((placed - agent.transform.position).sqrMagnitude < 0.0001f) continue;
+
+                Undo.RecordObject(agent.transform, "Snap agent to NavMesh");
+                agent.transform.position = placed;
+                Debug.Log($"[FearMe] Moved '{agent.name}' onto the NavMesh.");
+            }
+        }
+
+        // An empty bake still counts as success, so check for triangles.
+        private static void Report()
         {
             NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
             int triangles = triangulation.indices.Length / 3;
 
             if (triangles == 0)
             {
-                Debug.LogError("[FearMe] NavMesh baked empty. Check that the floor has a MeshRenderer, " +
-                    "is roughly level, and is not excluded by the surface's Include Layers.");
+                Debug.LogError("[FearMe] NavMesh baked empty. Check that the floor meshes have MeshRenderers, " +
+                    "are roughly level, and that the agent radius in Window > AI > Navigation is not wider " +
+                    "than the corridors.");
                 return;
             }
 
-            Debug.Log($"[FearMe] NavMesh baked: {triangles} triangles. Saved to {DataPath}.");
-
-            foreach (NavMeshAgent agent in Object.FindObjectsByType<NavMeshAgent>(FindObjectsSortMode.None))
-            {
-                if (NavMesh.SamplePosition(agent.transform.position, out _, 4f, NavMesh.AllAreas)) continue;
-
-                Debug.LogWarning("[FearMe] '" + agent.name + "' is not standing near the NavMesh; " +
-                    "move it over walkable floor or it will not path.");
-            }
+            Debug.Log($"[FearMe] NavMesh baked: {triangles} triangles, saved to {DataPathForActiveScene()}.");
         }
     }
 }

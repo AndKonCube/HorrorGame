@@ -44,7 +44,15 @@ namespace FearMe.EditorTools
         [MenuItem("Tools/FearMe/Layers/Assign Level Layer to Static Geometry")]
         public static void AssignToStaticGeometry()
         {
-            int layer = EnsureLevelLayer();
+            int changed = AssignAllGeometry(out _);
+            Finish(changed, "static geometry");
+        }
+
+        // Assignment without the rebake, so the NavMesh repair can call it
+        // without the two bouncing off each other forever.
+        internal static int AssignAllGeometry(out int layer)
+        {
+            layer = EnsureLevelLayer();
             int changed = 0;
 
             foreach (MeshRenderer renderer in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
@@ -57,7 +65,21 @@ namespace FearMe.EditorTools
                 changed++;
             }
 
-            Finish(changed, "static geometry");
+            return changed;
+        }
+
+        internal static int CountOnLevelLayer()
+        {
+            int layer = LayerMask.NameToLayer(LevelLayerName);
+            if (layer < 0) return 0;
+
+            int count = 0;
+            foreach (MeshRenderer renderer in Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None))
+            {
+                if (renderer.gameObject.layer == layer) count++;
+            }
+
+            return count;
         }
 
         // Gameplay objects must stay off the bake layer: agents get carved

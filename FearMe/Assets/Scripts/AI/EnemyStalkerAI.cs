@@ -44,6 +44,7 @@ namespace FearMe.AI
         private Vector3 lastKnownPosition;
         private float stateTimer;
         private float sightLostTimer;
+        private bool warnedOffMesh;
 
         private void Awake()
         {
@@ -58,6 +59,19 @@ namespace FearMe.AI
 
         private void Update()
         {
+            // Without a mesh under it the agent is never placed, and every
+            // call below would throw once a frame. Say so once instead.
+            if (!agent.isOnNavMesh)
+            {
+                if (!warnedOffMesh)
+                {
+                    warnedOffMesh = true;
+                    Debug.LogWarning("[FearMe] '" + name + "' is not on a NavMesh, so it cannot move. " +
+                        "Bake one with Tools > FearMe > Rebake NavMesh (current scene).", this);
+                }
+                return;
+            }
+
             bool canSeePlayer = CanSeePlayer();
             bool canHearPlayer = CanHearPlayer();
 
@@ -114,6 +128,10 @@ namespace FearMe.AI
         private void GoToNextPatrolPoint()
         {
             if (patrolRoute == null || patrolRoute.Count == 0) return;
+
+            // Reached from Start, before Update's off-mesh guard can run.
+            if (!agent.isOnNavMesh) return;
+
             agent.SetDestination(patrolRoute.GetWaypoint(patrolIndex).position);
             patrolIndex++;
         }
