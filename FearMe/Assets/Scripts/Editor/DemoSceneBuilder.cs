@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using FearMe.AI;
 using FearMe.Core;
 using FearMe.Player;
+using FearMe.Scares;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.Events;
@@ -91,7 +92,13 @@ namespace FearMe.EditorTools
             GameObject managers = BuildManagers(player, enemy);
             WireExitDoor(managers.GetComponent<GameOverController>());
 
+            BuildFog(managers, player.transform);
+            BuildFogZones(level);
+
             BakeNavMesh(levelMask);
+
+            // After the bake: apparition placement samples the NavMesh.
+            BuildScares(player, enemy, levelMask);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -467,6 +474,187 @@ namespace FearMe.EditorTools
             return managers;
         }
 
+        private static void BuildFog(GameObject managers, Transform followTarget)
+        {
+            Material hazeMat = GetOrCreateHazeMaterial(GetOrCreateSoftParticleTexture());
+            ParticleSystem haze = BuildGroundHaze(hazeMat);
+
+            VolumetricFogController fog = managers.AddComponent<VolumetricFogController>();
+            SetFogProfile(fog, "baseProfile", "Corridors", 0.045f, new Color(0.03f, 0.035f, 0.04f), 14f, 1.5f);
+            SetObjectField(fog, "followTarget", followTarget);
+            SetObjectField(fog, "hazeParticles", haze);
+        }
+
+        private static ParticleSystem BuildGroundHaze(Material hazeMat)
+        {
+            GameObject go = new GameObject("GroundHaze");
+            ParticleSystem ps = go.AddComponent<ParticleSystem>();
+
+            ParticleSystem.MainModule main = ps.main;
+            main.loop = true;
+            main.startLifetime = 14f;
+            main.startSpeed = 0.15f;
+            main.startSize = 16f;
+            main.startColor = new Color(0.55f, 0.6f, 0.68f, 0.05f);
+            main.maxParticles = 140;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+            ParticleSystem.EmissionModule emission = ps.emission;
+            emission.rateOverTime = 14f;
+
+            ParticleSystem.ShapeModule shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Box;
+            shape.scale = new Vector3(45f, 0.4f, 45f);
+
+            ParticleSystemRenderer renderer = ps.GetComponent<ParticleSystemRenderer>();
+            renderer.sharedMaterial = hazeMat;
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.sortingFudge = 40f;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+
+            return ps;
+        }
+
+        private static void BuildFogZones(Transform level)
+        {
+            BuildFogZone(level, "FogZone_Morgue", new Vector3(-34f, 2f, -21.5f), new Vector3(11f, 4f, 16f),
+                "Morgue", 0.085f, new Color(0.04f, 0.05f, 0.045f), 26f);
+            BuildFogZone(level, "FogZone_Theatre", new Vector3(-34f, 2f, 21.5f), new Vector3(11f, 4f, 16f),
+                "Theatre", 0.07f, new Color(0.05f, 0.05f, 0.062f), 20f);
+        }
+
+        private static void BuildFogZone(Transform level, string name, Vector3 position, Vector3 size,
+            string label, float density, Color color, float hazeRate)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(level, false);
+            go.transform.position = position;
+
+            BoxCollider box = go.AddComponent<BoxCollider>();
+            box.isTrigger = true;
+            box.size = size;
+
+            FogZone zone = go.AddComponent<FogZone>();
+            SetFogProfile(zone, "profile", label, density, color, hazeRate, 1.2f);
+        }
+
+        private static void BuildScares(GameObject player, EnemyStalkerAI enemy, int levelMask)
+        {
+            GameObject apparition = BuildApparition();
+
+            GameObject scaresGO = new GameObject("ScareDirector");
+
+            ApparitionScare apparitionScare = scaresGO.AddComponent<ApparitionScare>();
+            SetObjectField(apparitionScare, "apparition", apparition);
+            SetIntField(apparitionScare, "obstructionMask", levelMask);
+
+            LightFailureScare lightScare = scaresGO.AddComponent<LightFailureScare>();
+
+            GameObject audioGO = new GameObject("ScareAudio");
+            AudioSource scareSource = audioGO.AddComponent<AudioSource>();
+            scareSource.playOnAwake = false;
+            scareSource.spatialBlend = 1f;
+            scareSource.rolloffMode = AudioRolloffMode.Linear;
+            scareSource.maxDistance = 45f;
+
+            // Two flavours: something breathing behind you, something far off.
+            PositionalSoundScare whisper = scaresGO.AddComponent<PositionalSoundScare>();
+            SetObjectField(whisper, "source", scareSource);
+            SetEnumField(whisper, "placement", 0);
+
+            PositionalSoundScare distant = scaresGO.AddComponent<PositionalSoundScare>();
+            SetObjectField(distant, "source", scareSource);
+            SetEnumField(distant, "placement", 2);
+
+            ScareDirector director = scaresGO.AddComponent<ScareDirector>();
+            SetObjectField(director, "player", player.GetComponent<PlayerController>());
+            SetObjectField(director, "playerCamera", player.GetComponentInChildren<Camera>());
+            SetObjectField(director, "stalker", enemy.transform);
+            SetObjectArrayField(director, "scares",
+                new Object[] { apparitionScare, lightScare, whisper, distant });
+        }
+
+        private static GameObject BuildApparition()
+        {
+            Material mat = GetOrCreateMaterial("Demo_Apparition", new Color(0.02f, 0.02f, 0.025f));
+
+            GameObject apparition = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            apparition.name = "Apparition";
+            apparition.transform.localScale = new Vector3(0.8f, 0.95f, 0.8f);
+            apparition.GetComponent<Renderer>().sharedMaterial = mat;
+
+            // No collider: it must never block movement, sight lines or the bake.
+            Collider collider = apparition.GetComponent<Collider>();
+            if (collider != null) Object.DestroyImmediate(collider);
+
+            apparition.SetActive(false);
+            return apparition;
+        }
+
+        private static Material GetOrCreateHazeMaterial(Texture2D softParticle)
+        {
+            string path = MaterialFolder + "/Demo_Haze.mat";
+            Material existing = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (existing != null) return existing;
+
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null) shader = Shader.Find("Sprites/Default");
+
+            Material mat = new Material(shader);
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", softParticle);
+            if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", softParticle);
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", new Color(0.55f, 0.6f, 0.68f, 1f));
+
+            // Alpha-blended transparent, no depth write.
+            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
+            if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0f);
+            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.renderQueue = (int)RenderQueue.Transparent;
+
+            AssetDatabase.CreateAsset(mat, path);
+            return mat;
+        }
+
+        // A round soft-edged dot; without it the haze renders as hard squares.
+        private static Texture2D GetOrCreateSoftParticleTexture()
+        {
+            const string folder = "Assets/Textures";
+            const string path = folder + "/SoftParticle.png";
+
+            Texture2D existing = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (existing != null) return existing;
+
+            if (!AssetDatabase.IsValidFolder(folder))
+                AssetDatabase.CreateFolder("Assets", "Textures");
+
+            const int size = 128;
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            float half = size * 0.5f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x + 0.5f - half) / half;
+                    float dy = (y + 0.5f - half) / half;
+                    float falloff = Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy));
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, falloff * falloff));
+                }
+            }
+
+            texture.Apply();
+            System.IO.File.WriteAllBytes(path, texture.EncodeToPNG());
+            Object.DestroyImmediate(texture);
+
+            AssetDatabase.ImportAsset(path);
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
         private static void WireExitDoor(GameOverController flow)
         {
             ExitDoor door = Object.FindFirstObjectByType<ExitDoor>();
@@ -647,6 +835,34 @@ namespace FearMe.EditorTools
             SerializedProperty prop = so.FindProperty(fieldName);
             if (prop == null) return;
             prop.floatValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetEnumField(Object target, string fieldName, int enumIndex)
+        {
+            SerializedObject so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null) return;
+            prop.enumValueIndex = enumIndex;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SetFogProfile(Object target, string fieldName, string label,
+            float density, Color color, float hazeRate, float blendSpeed)
+        {
+            SerializedObject so = new SerializedObject(target);
+            SerializedProperty prop = so.FindProperty(fieldName);
+            if (prop == null)
+            {
+                Debug.LogWarning("[FearMe] Missing fog profile '" + fieldName + "' on " + target.GetType().Name);
+                return;
+            }
+
+            prop.FindPropertyRelative("label").stringValue = label;
+            prop.FindPropertyRelative("density").floatValue = density;
+            prop.FindPropertyRelative("color").colorValue = color;
+            prop.FindPropertyRelative("hazeRate").floatValue = hazeRate;
+            prop.FindPropertyRelative("blendSpeed").floatValue = blendSpeed;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
