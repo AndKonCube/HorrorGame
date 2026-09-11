@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Generic;
+using FearMe.Core;
 using FearMe.Player;
 using UnityEngine;
 
@@ -23,6 +25,8 @@ namespace FearMe.Scares
         [SerializeField] private float maxSecondsBetweenScares = 38f;
         [Tooltip("Scares only fire while tension sits below this.")]
         [SerializeField, Range(0f, 1f)] private float tensionCeiling = 0.35f;
+        [Tooltip("Seconds of dead air staged immediately before a scare.")]
+        [SerializeField] private float silenceBeforeScare = 2.5f;
 
         [Header("Tension")]
         [SerializeField] private float threatRadius = 22f;
@@ -31,6 +35,7 @@ namespace FearMe.Scares
 
         public float Tension { get; private set; }
 
+        private bool staging;
         private float calmTimer;
         private float nextScareTime;
 
@@ -46,8 +51,23 @@ namespace FearMe.Scares
             if (Tension < tensionCeiling) calmTimer += Time.deltaTime;
             else calmTimer = 0f;
 
-            if (calmTimer >= calmBeforeScare && Time.time >= nextScareTime)
-                StageScare();
+            if (!staging && calmTimer >= calmBeforeScare && Time.time >= nextScareTime)
+                StartCoroutine(StageAfterSilence());
+        }
+
+        // The quiet is what makes the hit land, so cut the ambience first.
+        private IEnumerator StageAfterSilence()
+        {
+            staging = true;
+
+            if (silenceBeforeScare > 0f && AmbientAudioController.Instance != null)
+            {
+                AmbientAudioController.Instance.DropToSilence(silenceBeforeScare + 2f);
+                yield return new WaitForSeconds(silenceBeforeScare);
+            }
+
+            StageScare();
+            staging = false;
         }
 
         private void UpdateTension()

@@ -29,6 +29,12 @@ namespace FearMe.Scares
         [SerializeField] private float lookedAtAngle = 10f;
         [SerializeField] private float fogPulse = 0.03f;
 
+        [Header("Uncanny motion")]
+        [Tooltip("Hold still, then snap somewhere new - wrong timing, not a wrong model.")]
+        [SerializeField] private bool uncannyStutter = true;
+        [SerializeField] private Vector2 stutterInterval = new Vector2(0.7f, 1.8f);
+        [SerializeField] private float stutterDistance = 0.45f;
+
         [Header("Audio")]
         [Tooltip("Played at the figure's position as it appears. Left empty until you have a cue.")]
         [SerializeField] private AudioClip[] cueClips;
@@ -128,9 +134,24 @@ namespace FearMe.Scares
                 VolumetricFogController.Instance.Pulse(fogPulse);
 
             float elapsed = 0f;
+            float nextStutter = 0f;
+            Vector3 basePosition = spot;
+
             while (elapsed < maxVisibleTime)
             {
                 elapsed += Time.deltaTime;
+
+                // Unnatural stillness broken by a snap to a new pose reads as
+                // wrong in a way smooth motion never does - it is the timing,
+                // not the model, that unsettles.
+                if (uncannyStutter && elapsed >= nextStutter)
+                {
+                    nextStutter = elapsed + Random.Range(stutterInterval.x, stutterInterval.y);
+                    apparition.transform.position = basePosition + new Vector3(
+                        Random.Range(-stutterDistance, stutterDistance), 0f,
+                        Random.Range(-stutterDistance, stutterDistance));
+                    FacePlayer(context);
+                }
 
                 if (context.Eye != null && LookingAt(context.Eye, apparition.transform.position))
                     break;

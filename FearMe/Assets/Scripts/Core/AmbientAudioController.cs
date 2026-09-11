@@ -33,13 +33,43 @@ namespace FearMe.Core
         [SerializeField, Range(0f, 1f)] private float tensionOnset = 0.15f;
         [SerializeField] private float tensionFadeSpeed = 0.5f;
 
+        [Header("Stacked layers")]
+        [SerializeField] private AmbientLayer[] layers;
+
+        [Header("Silence")]
+        [Tooltip("How fast everything drops away; the cut should feel abrupt.")]
+        [SerializeField] private float silenceAttack = 6f;
+        [Tooltip("How slowly sound creeps back afterwards.")]
+        [SerializeField] private float silenceRecovery = 0.8f;
+
+        public static AmbientAudioController Instance { get; private set; }
+
         private float bedFade;
         private float bedDuck = 1f;
+        private float silenceUntil;
+        private float gate = 1f;
 
         private void Awake()
         {
+            Instance = this;
+
             PrepareSource(bedSource, loop: false);
             PrepareSource(tensionSource, loop: true);
+
+            if (layers == null) return;
+            foreach (AmbientLayer layer in layers)
+                PrepareSource(layer.source, loop: true);
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        // The held breath before a scare: everything cuts out, then creeps back.
+        public void DropToSilence(float duration)
+        {
+            silenceUntil = Mathf.Max(silenceUntil, Time.time + duration);
         }
 
         private static void PrepareSource(AudioSource source, bool loop)
@@ -61,6 +91,17 @@ namespace FearMe.Core
                 tensionSource.clip = tensionTracks[Random.Range(0, tensionTracks.Length)];
                 tensionSource.Play();
             }
+
+            if (layers == null) return;
+            foreach (AmbientLayer layer in layers)
+            {
+                if (layer.source == null || layer.clip == null) continue;
+
+                // Every layer runs from the start and is held at zero, so they
+                // arrive already in step with one another.
+                layer.source.clip = layer.clip;
+                layer.source.Play();
+            }
         }
 
         private void Update()
@@ -71,10 +112,18 @@ namespace FearMe.Core
             // ambient setting itself rather than using AudioCategoryVolume.
             float ambientScale = GameSettingsService.Current.ambientVolume;
 
+            // Drops fast, returns slowly: the cut should startle, the return
+            // should be something you only notice once it is back.
+            bool silenced = Time.time < silenceUntil;
+            gate = Mathf.MoveTowards(gate, silenced ? 0f : 1f,
+                (silenced ? silenceAttack : silenceRecovery) * Time.deltaTime);
+
+            float scale = ambientScale * gate;
+
             if (tensionSource != null)
             {
                 float target = tension > tensionOnset
-                    ? Mathf.InverseLerp(tensionOnset, 1f, tension) * tensionVolume * ambientScale
+                    ? Mathf.InverseLerp(tensionOnset, 1f, tension) * tensionVolume * scale
                     : 0f;
                 tensionSource.volume = Mathf.MoveTowards(
                     tensionSource.volume, target, tensionFadeSpeed * Time.deltaTime);
@@ -84,7 +133,26 @@ namespace FearMe.Core
             bedDuck = Mathf.MoveTowards(bedDuck, 1f - tension, tensionFadeSpeed * Time.deltaTime);
 
             if (bedSource != null)
-                bedSource.volume = bedVolume * bedFade * bedDuck * ambientScale;
+                bedSource.volume = bedVolume * bedFade * bedDuck * scale;
+
+            UpdateLayers(tension, scale);
+        }
+
+        private void UpdateLayers(float tension, float scale)
+        {
+            if (layers == null) return;
+
+            foreach (AmbientLayer layer in layers)
+            {
+                if (layer.source == null) continue;
+
+                float target = tension > layer.startsAt
+                    ? Mathf.InverseLerp(layer.startsAt, 1f, tension) * layer.maxVolume * scale
+                    : 0f;
+
+                layer.source.volume = Mathf.MoveTowards(
+                    layer.source.volume, target, tensionFadeSpeed * Time.deltaTime);
+            }
         }
 
         private IEnumerator BedLoop()
