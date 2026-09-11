@@ -37,17 +37,19 @@ against `heavyThreshold`.
 
 ### → Calm Breaths (`calmBreaths`) — `Audio/Breathing/Calm/`
 
-| Clip | Description |
-| --- | --- |
-| Calm_Breath_01 | Slow nasal breathing, relaxed, two steady breaths |
+| Clip | Description | Source |
+| --- | --- | --- |
+| Calm_Breath_01 | Slow nasal breathing, relaxed, two steady breaths | ElevenLabs |
+| Calm_Breath_02 | Soft exhale through parted lips | synthesised |
+| Calm_Breath_03 | Slow deep breath in, pause, long breath out | synthesised |
 
 ### → Heavy Breaths (`heavyBreaths`) — `Audio/Breathing/Heavy/`
 
-**Empty — still to generate.** Intended set:
-
-1. Fast panicked panting, short sharp breaths through the mouth
-2. Ragged exhausted breathing after running, hoarse and uneven
-3. Sharp frightened gasp then shaky suppressed breathing
+| Clip | Description | Source |
+| --- | --- | --- |
+| Heavy_Breath_01 | Fast panicked panting, five shallow mouth breaths | synthesised |
+| Heavy_Breath_02 | Ragged and exhausted, voiced rasp on the exhales | synthesised |
+| Heavy_Breath_03 | Sharp gasp, then breathing held down small and tight | synthesised |
 
 ## AmbientAudioController → Stacked Layers
 
@@ -55,24 +57,39 @@ against `heavyThreshold`.
 Each entry has its own `source`, `clip`, `startsAt` tension threshold and
 `maxVolume`, so layers arrive by degrees rather than one track swelling.
 
-`Audio/Ambient/Layers/` — **empty, still to generate.** Intended stack:
+`Audio/Ambient/Layers/` — four 20 s clips, all synthesised and loop-clean.
 
-| Label | Clip to generate | startsAt | maxVolume |
+| Label | Clip | startsAt | maxVolume |
 | --- | --- | --- | --- |
-| Sub | Deep sustained sub-bass drone, steady, felt more than heard | 0.00 | 0.45 |
-| Room | Abandoned house room tone, faint air hiss and distant wind | 0.15 | 0.40 |
-| Shimmer | High thin metallic shimmer, unstable dissonant ringing | 0.45 | 0.35 |
-| Dread | Low dread swell rising slowly then falling away, no impact hit | 0.70 | 0.55 |
+| Sub | Layer_1_Sub — 36/54 Hz drone, felt more than heard | 0.00 | 0.45 |
+| Room | Layer_2_Room — air, rumble, wind swelling three times per loop | 0.15 | 0.40 |
+| Shimmer | Layer_3_Shimmer — close dissonant partials beating at 2.3-3.1 kHz | 0.45 | 0.35 |
+| Dread | Layer_4_Dread — slow swell rising and falling away, no impact hit | 0.70 | 0.55 |
 
-Each layer source must loop, so these need seamless clips — generate long and
-crossfade the ends, or the seam reads as a tick every few seconds.
+These loop seamlessly by construction, not by luck: every tonal component
+completes a whole number of cycles across the 20 s, and every noise bed is
+filtered first and then wrapped with a circular crossfade. Measured wrap
+discontinuity is at or below ordinary sample-to-sample motion on all four.
+
+Layer 1 is genuinely sub-bass — it will be close to inaudible on laptop
+speakers and carry the whole scene on headphones. Judge its level on
+headphones, not on a monitor speaker.
+
+## Regenerating the synthesised clips
+
+    python3 Tools/audiogen/synth_audio.py FearMe/Assets/Audio
+
+Pure standard library, no install step. The random seed is fixed, so a re-run
+reproduces the same clips; change the seed in `main()` for fresh variants, or
+edit the per-clip parameters to retune any one of them.
 
 ## Unity import settings
 
 - One-shots (Structure, Movement, breaths): Load Type `Decompress On Load`,
   Force To Mono on, Preload Audio Data off.
 - Ambient layers: Load Type `Streaming`, Compression `Vorbis`, Loop on the
-  AudioSource.
+  AudioSource. Leave the WAVs as WAV — re-encoding a seamless loop to MP3 adds
+  encoder padding and reintroduces the gap at the wrap.
 
 `Tools/FearMe/Wire Ambient Audio` wires the bed and tension sources but does
 not populate `layers` — those are assigned by hand.
