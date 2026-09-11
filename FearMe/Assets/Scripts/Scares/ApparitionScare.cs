@@ -1,5 +1,6 @@
 using System.Collections;
 using FearMe.Core;
+using FearMe.Settings;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -28,7 +29,39 @@ namespace FearMe.Scares
         [SerializeField] private float lookedAtAngle = 10f;
         [SerializeField] private float fogPulse = 0.03f;
 
+        [Header("Audio")]
+        [Tooltip("Played at the figure's position as it appears. Left empty until you have a cue.")]
+        [SerializeField] private AudioClip[] cueClips;
+        [Tooltip("Optional; one is created at runtime if left empty.")]
+        [SerializeField] private AudioSource cueSource;
+
         private Coroutine active;
+
+        private void Awake()
+        {
+            // Self-provisioning so an existing scene needs no rewiring.
+            if (cueSource != null) return;
+
+            GameObject go = new GameObject("ApparitionCue");
+            go.transform.SetParent(transform, false);
+
+            cueSource = go.AddComponent<AudioSource>();
+            cueSource.playOnAwake = false;
+            cueSource.spatialBlend = 1f; // 3D: you should hear where it is
+            cueSource.rolloffMode = AudioRolloffMode.Linear;
+            cueSource.maxDistance = 40f;
+
+            go.AddComponent<AudioCategoryVolume>(); // follows the SFX slider
+        }
+
+        private void PlayCue(Vector3 position)
+        {
+            if (cueSource == null || cueClips == null || cueClips.Length == 0) return;
+
+            cueSource.transform.position = position;
+            cueSource.clip = cueClips[Random.Range(0, cueClips.Length)];
+            cueSource.Play();
+        }
 
         public override bool CanPlay(ScareContext context)
         {
@@ -89,6 +122,7 @@ namespace FearMe.Scares
             apparition.transform.position = spot;
             FacePlayer(context);
             apparition.SetActive(true);
+            PlayCue(spot);
 
             if (fogPulse > 0f && VolumetricFogController.Instance != null)
                 VolumetricFogController.Instance.Pulse(fogPulse);

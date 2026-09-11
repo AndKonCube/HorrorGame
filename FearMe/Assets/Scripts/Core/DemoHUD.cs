@@ -33,20 +33,43 @@ namespace FearMe.Core
             centerStyle.normal.textColor = new Color(0.8f, 0.1f, 0.1f);
         }
 
+        private void DrawEndCard(bool escaped)
+        {
+            centerStyle.normal.textColor = escaped
+                ? new Color(0.82f, 0.80f, 0.74f)
+                : new Color(0.75f, 0.08f, 0.08f);
+
+            float third = Screen.height / 3f;
+
+            GUI.Label(
+                new Rect(0f, third - 40f, Screen.width, 80f),
+                escaped ? "YOU ESCAPED" : "IT FOUND YOU",
+                centerStyle);
+
+            if (!escaped) return;
+
+            GUIStyle thanks = new GUIStyle(centerStyle) { fontSize = 26 };
+            thanks.normal.textColor = new Color(0.7f, 0.68f, 0.64f);
+            GUI.Label(
+                new Rect(0f, third + 50f, Screen.width, 40f),
+                "THANK YOU FOR PLAYING THE DEMO",
+                thanks);
+
+            GUIStyle note = new GUIStyle(centerStyle) { fontSize = 18 };
+            note.normal.textColor = new Color(0.45f, 0.44f, 0.42f);
+            GUI.Label(
+                new Rect(0f, third + 100f, Screen.width, 30f),
+                "returning to the menu",
+                note);
+        }
+
         private void OnGUI()
         {
             BuildStyles();
 
             if (gameFlow != null && gameFlow.IsFinished)
             {
-                centerStyle.normal.textColor = gameFlow.DidEscape
-                    ? new Color(0.8f, 0.78f, 0.7f)
-                    : new Color(0.75f, 0.08f, 0.08f);
-
-                GUI.Label(
-                    new Rect(0f, 0f, Screen.width, Screen.height),
-                    gameFlow.DidEscape ? "YOU ESCAPED" : "IT FOUND YOU",
-                    centerStyle);
+                DrawEndCard(gameFlow.DidEscape);
                 return;
             }
 

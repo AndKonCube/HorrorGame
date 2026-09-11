@@ -86,11 +86,10 @@ namespace FearMe.EditorTools
             BuildHidingSpot(level, new Vector3(35f, 0f, 3f), 270f, levelLayer, wallMat);
             BuildHidingSpot(level, new Vector3(-19f, 0f, -26f), 0f, levelLayer, wallMat);
 
-            BuildKey(new Vector3(-34f, 1f, -20f), keyMat);  // morgue
-            BuildKey(new Vector3(-34f, 1f, 22f), keyMat);   // operating theatre
-            BuildKey(new Vector3(17f, 1f, 0f), keyMat);     // records
-
             GameObject managers = BuildManagers(player, enemy);
+
+            // Candidate spots in every room; KeySpawner keeps a random few.
+            KeySpawnSetup.PlaceAllSpots(level, keyMat, managers.GetComponent<ObjectiveTracker>());
             WireExitDoor(managers.GetComponent<GameOverController>());
 
             BuildFog(managers, player.transform);
@@ -408,24 +407,6 @@ namespace FearMe.EditorTools
             box.isTrigger = true;
             box.size = new Vector3(1.4f, 2f, 1.4f);
             trigger.AddComponent<HidingSpot>();
-        }
-
-        private static void BuildKey(Vector3 position, Material mat)
-        {
-            GameObject key = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            key.name = "KeyItem";
-            key.transform.position = position;
-            key.transform.localScale = new Vector3(0.25f, 0.25f, 0.25f);
-            key.GetComponent<Renderer>().sharedMaterial = mat;
-            key.AddComponent<KeyItem>();
-
-            GameObject glow = new GameObject("KeyGlow");
-            glow.transform.SetParent(key.transform, false);
-            Light light = glow.AddComponent<Light>();
-            light.type = LightType.Point;
-            light.range = 6f;
-            light.intensity = 1.6f;
-            light.color = new Color(1f, 0.85f, 0.4f);
         }
 
         private static GameObject BuildManagers(GameObject player, EnemyStalkerAI enemy)

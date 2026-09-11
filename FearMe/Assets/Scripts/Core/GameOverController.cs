@@ -5,8 +5,8 @@ using UnityEngine.SceneManagement;
 
 namespace FearMe.Core
 {
-    // Ends the run, either by being caught or by escaping, then reloads.
-    // EnemyStalkerAI's onPlayerCaught event calls OnPlayerCaught().
+    // Ends the run. Being caught drops you back into the level to try again;
+    // escaping ends the demo, thanks the player and returns to the menu.
     public class GameOverController : MonoBehaviour
     {
         [SerializeField] private CanvasGroup fadeCanvasGroup;
@@ -14,6 +14,10 @@ namespace FearMe.Core
         [SerializeField] private PlayerInput playerInputToDisable;
         [SerializeField] private float fadeDuration = 0.6f;
         [SerializeField] private float delayBeforeReload = 2.5f;
+
+        [Header("Demo end")]
+        [SerializeField] private string menuSceneName = "MainMenu";
+        [SerializeField] private float thankYouDuration = 5f;
 
         public bool IsFinished { get; private set; }
         public bool DidEscape { get; private set; }
@@ -23,8 +27,9 @@ namespace FearMe.Core
             if (IsFinished) return;
             IsFinished = true;
             DidEscape = false;
+
             if (jumpscareAudio != null) jumpscareAudio.Play();
-            StartCoroutine(EndSequence(fadeDuration));
+            StartCoroutine(CaughtSequence());
         }
 
         public void OnPlayerEscaped()
@@ -32,14 +37,31 @@ namespace FearMe.Core
             if (IsFinished) return;
             IsFinished = true;
             DidEscape = true;
-            StartCoroutine(EndSequence(1.5f));
+
+            StartCoroutine(EscapeSequence());
         }
 
-        private IEnumerator EndSequence(float duration)
+        private IEnumerator CaughtSequence()
         {
-            if (playerInputToDisable != null) playerInputToDisable.enabled = false;
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            yield return FadeOut(fadeDuration);
+            yield return new WaitForSeconds(delayBeforeReload);
+
+            // Straight back into the level for another attempt.
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+
+        private IEnumerator EscapeSequence()
+        {
+            yield return FadeOut(1.5f);
+
+            // Held on black while the HUD shows the thank-you card.
+            yield return new WaitForSeconds(thankYouDuration);
+            LoadMenu();
+        }
+
+        private IEnumerator FadeOut(float duration)
+        {
+            HandOverControl();
 
             float elapsed = 0f;
             while (elapsed < duration)
@@ -49,8 +71,26 @@ namespace FearMe.Core
                     fadeCanvasGroup.alpha = Mathf.Clamp01(elapsed / duration);
                 yield return null;
             }
+        }
 
-            yield return new WaitForSeconds(delayBeforeReload);
+        private void HandOverControl()
+        {
+            if (playerInputToDisable != null) playerInputToDisable.enabled = false;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+
+        private void LoadMenu()
+        {
+            // A scene missing from the build list would hard-fail, so check first.
+            if (!string.IsNullOrEmpty(menuSceneName) && Application.CanStreamedLevelBeLoaded(menuSceneName))
+            {
+                SceneManager.LoadScene(menuSceneName);
+                return;
+            }
+
+            Debug.LogWarning("[FearMe] Scene '" + menuSceneName +
+                "' is not in the build list; build the main menu scene to return to it.");
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
     }
