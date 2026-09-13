@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using FearMe.AI;
+using FearMe.Core;
 using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -123,14 +124,23 @@ namespace FearMe.EditorTools
             {
                 Vector3 groundLevel = agent.transform.position - Vector3.up * agent.baseOffset;
 
-                if (!NavMesh.SamplePosition(groundLevel, out NavMeshHit hit, 30f, NavMesh.AllAreas))
+                // This storey first. A 30m search would happily drop the
+                // stalker onto a different floor of the building.
+                if (!NavMeshUtility.TrySampleSameFloor(groundLevel, out Vector3 onMesh, 5f, 2.5f))
                 {
-                    Debug.LogWarning("[FearMe] No NavMesh within 30m of '" + agent.name +
-                        "'. Move it over walkable floor by hand.");
-                    continue;
+                    if (!NavMesh.SamplePosition(groundLevel, out NavMeshHit far, 30f, NavMesh.AllAreas))
+                    {
+                        Debug.LogWarning("[FearMe] No NavMesh within 30m of '" + agent.name +
+                            "'. Move it over walkable floor by hand.");
+                        continue;
+                    }
+
+                    onMesh = far.position;
+                    Debug.LogWarning($"[FearMe] '{agent.name}' had no mesh on its own storey; moved it " +
+                        $"{Mathf.Abs(far.position.y - groundLevel.y):0.#}m vertically. Check it is on the floor you meant.");
                 }
 
-                Vector3 placed = hit.position + Vector3.up * agent.baseOffset;
+                Vector3 placed = onMesh + Vector3.up * agent.baseOffset;
                 if ((placed - agent.transform.position).sqrMagnitude < 0.0001f) continue;
 
                 Undo.RecordObject(agent.transform, "Snap agent to NavMesh");
@@ -157,18 +167,20 @@ namespace FearMe.EditorTools
                     Transform waypoint = list.GetArrayElementAtIndex(i).objectReferenceValue as Transform;
                     if (waypoint == null) continue;
 
-                    if (!NavMesh.SamplePosition(waypoint.position, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                    // Bounded vertically: snapping a first-floor waypoint down
+                    // to the ground floor silently breaks an upstairs patrol.
+                    if (!NavMeshUtility.TrySampleSameFloor(waypoint.position, out Vector3 onMesh, 6f, 2f))
                     {
-                        Debug.LogWarning("[FearMe] '" + waypoint.name + "' has no NavMesh within 10m; " +
+                        Debug.LogWarning("[FearMe] '" + waypoint.name + "' has no NavMesh on its own storey; " +
                             "the patrol will skip it. Move it over walkable floor.", waypoint);
                         stranded++;
                         continue;
                     }
 
-                    if ((hit.position - waypoint.position).sqrMagnitude < 0.0025f) continue;
+                    if ((onMesh - waypoint.position).sqrMagnitude < 0.0025f) continue;
 
                     Undo.RecordObject(waypoint, "Snap waypoint to NavMesh");
-                    waypoint.position = hit.position;
+                    waypoint.position = onMesh;
                     moved++;
                 }
             }
@@ -196,6 +208,31 @@ namespace FearMe.EditorTools
         }
 
         // An empty bake still counts as success, so check for triangles.
+        // Groups walkable area into height bands. If the upper floor did not
+        // bake, this is where it shows.
+        private static void ReportStoreys(NavMeshTriangulation triangulation)
+        {
+            Dictionary<int, int> bands = new Dictionary<int, int>();
+
+            for (int i = 0; i + 2 < triangulation.indices.Length; i += 3)
+            {
+                float y = triangulation.vertices[triangulation.indices[i]].y;
+                int band = Mathf.FloorToInt(y / 3f);
+                bands.TryGetValue(band, out int count);
+                bands[band] = count + 1;
+            }
+
+            List<int> keys = new List<int>(bands.Keys);
+            keys.Sort();
+
+            foreach (int band in keys)
+                Debug.Log($"[FearMe]   storey around y={band * 3}..{band * 3 + 3}: {bands[band]} triangles");
+
+            if (keys.Count < 2)
+                Debug.LogWarning("[FearMe] Walkable floor found at only one height. If this level has an " +
+                    "upper storey, its floor is not on the bake layer or the stairs are too steep to connect.");
+        }
+
         private static void Report()
         {
             NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
@@ -210,6 +247,7 @@ namespace FearMe.EditorTools
             }
 
             Debug.Log($"[FearMe] NavMesh baked: {triangles} triangles, saved to {DataPathForActiveScene()}.");
+            ReportStoreys(triangulation);
         }
     }
 }

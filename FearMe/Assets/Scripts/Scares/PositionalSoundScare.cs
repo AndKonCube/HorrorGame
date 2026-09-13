@@ -1,3 +1,4 @@
+using FearMe.Core;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -73,8 +74,8 @@ namespace FearMe.Scares
             }
 
             Vector3 candidate = origin + direction * distance;
-            if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 4f, NavMesh.AllAreas))
-                return hit.position + Vector3.up;
+            if (NavMeshUtility.TrySampleSameFloor(candidate, out Vector3 onMesh))
+                return onMesh + Vector3.up;
 
             return candidate;
         }

@@ -116,9 +116,11 @@ namespace FearMe.Core
                 Vector2 offset = Random.insideUnitCircle.normalized * Random.Range(minDistance, maxDistance);
                 Vector3 candidate = listener.position + new Vector3(offset.x, 0f, offset.y);
 
-                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 4f, NavMesh.AllAreas))
+                // Same storey only: a creak from the floor above reads as a
+                // bug, not atmosphere.
+                if (NavMeshUtility.TrySampleSameFloor(candidate, out Vector3 onMesh))
                 {
-                    spot = hit.position + Vector3.up;
+                    spot = onMesh + Vector3.up;
                     return true;
                 }
             }

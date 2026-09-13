@@ -1,3 +1,4 @@
+using FearMe.Core;
 using FearMe.Player;
 using UnityEngine;
 using UnityEngine.AI;
@@ -140,12 +141,13 @@ namespace FearMe.AI
         }
 
         // Waypoints get hand-placed slightly off the floor, which yields a
-        // partial path the agent can never finish, so snap the target down
-        // onto the mesh before asking for it.
+        // partial path the agent can never finish, so snap the target onto the
+        // mesh first - but only onto this storey. A wider search would return
+        // the floor above and send the stalker after the wrong level.
         private void SetDestinationOnMesh(Vector3 target)
         {
-            if (NavMesh.SamplePosition(target, out NavMeshHit hit, 6f, NavMesh.AllAreas))
-                target = hit.position;
+            if (NavMeshUtility.TrySampleSameFloor(target, out Vector3 onMesh))
+                target = onMesh;
 
             destinationSetAt = Time.time;
             agent.SetDestination(target);
