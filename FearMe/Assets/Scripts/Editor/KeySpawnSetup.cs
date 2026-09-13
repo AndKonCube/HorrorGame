@@ -30,6 +30,30 @@ namespace FearMe.EditorTools
             new Vector3(34f, 1f, -20f)    // generator
         };
 
+        // The same room spots repeated on each storey. Upper storeys skip
+        // anything over the stairwell, where there is no floor to stand on.
+        internal static List<Vector3> SpotsOnStoreys(float storeyHeight,
+            Vector2 stairwellX, Vector2 stairwellZ, int storeys = 2)
+        {
+            List<Vector3> all = new List<Vector3>();
+
+            for (int storey = 0; storey < storeys; storey++)
+            {
+                foreach (Vector3 spot in Spots)
+                {
+                    bool overStairwell =
+                        spot.x > stairwellX.x && spot.x < stairwellX.y &&
+                        spot.z > stairwellZ.x && spot.z < stairwellZ.y;
+
+                    if (storey > 0 && overStairwell) continue;
+
+                    all.Add(spot + Vector3.up * (storeyHeight * storey));
+                }
+            }
+
+            return all;
+        }
+
         [MenuItem("Tools/FearMe/Scatter Key Spots (current scene)")]
         public static void ScatterInCurrentScene()
         {

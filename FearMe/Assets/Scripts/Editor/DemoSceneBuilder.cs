@@ -40,6 +40,16 @@ namespace FearMe.EditorTools
         private const float HalfWidth = 40f;
         private const float HalfDepth = 30f;
 
+        // Floor-to-floor: storey 0 walls span 0..4, the slab 4..4.5.
+        private const float StoreyHeight = 4.5f;
+
+        // Hole in the mid slab that the stairs climb through, inside Supply.
+        private static readonly Vector2 StairwellX = new Vector2(30f, 38f);
+        private static readonly Vector2 StairwellZ = new Vector2(17f, 29f);
+
+        private const string BedPrefabPath =
+            "Assets/Art/Dnk_Dev/HospitalHorrorPack/Prefab/P_BedBedding.prefab";
+
         // Openings where a corridor crosses a wall line.
         private static readonly Vector2[] NorthSouthCorridors =
         {
@@ -88,8 +98,10 @@ namespace FearMe.EditorTools
 
             GameObject managers = BuildManagers(player, enemy);
 
-            // Candidate spots in every room; KeySpawner keeps a random few.
-            KeySpawnSetup.PlaceAllSpots(level, keyMat, managers.GetComponent<ObjectiveTracker>());
+            // Candidate spots in every room on both storeys; KeySpawner keeps
+            // a random few, so a run may send the player upstairs.
+            KeySpawnSetup.PlaceSpots(level, keyMat, managers.GetComponent<ObjectiveTracker>(),
+                KeySpawnSetup.SpotsOnStoreys(StoreyHeight, StairwellX, StairwellZ));
             WireExitDoor(managers.GetComponent<GameOverController>());
 
             BuildFog(managers, player.transform);
@@ -127,32 +139,95 @@ namespace FearMe.EditorTools
             Transform t = root.transform;
 
             CreateBox(t, "Floor", new Vector3(0f, -0.25f, 0f), new Vector3(80f, 0.5f, 60f), levelLayer, floorMat);
-            // Default layer keeps the ceiling out of the NavMesh bake and the vision mask.
-            CreateBox(t, "Ceiling", new Vector3(0f, WallHeight, 0f), new Vector3(80f, 0.5f, 60f), 0, floorMat);
 
-            BuildOuterShell(t, levelLayer, wallMat, doorMat);
-            BuildInteriorWalls(t, levelLayer, wallMat);
-            BuildProps(t, levelLayer, propMat);
+            // Ground floor.
+            BuildOuterShell(t, levelLayer, wallMat, doorMat, 0f, withExit: true);
+            BuildInteriorWalls(t, levelLayer, wallMat, 0f);
+            BuildProps(t, levelLayer, propMat, 0f);
+
+            // The slab between storeys is also the upper floor, so it stays on
+            // the bake layer - with a hole cut for the stairs.
+            BuildMidSlab(t, levelLayer, floorMat);
+            BuildStairs(t, levelLayer, floorMat);
+
+            // Upper floor: same plan, no second exit.
+            BuildOuterShell(t, levelLayer, wallMat, doorMat, StoreyHeight, withExit: false);
+            BuildInteriorWalls(t, levelLayer, wallMat, StoreyHeight);
+            BuildProps(t, levelLayer, propMat, StoreyHeight);
+
+            // Default layer keeps the roof out of the bake and the vision mask.
+            CreateBox(t, "Roof", new Vector3(0f, StoreyHeight + WallHeight + 0.25f, 0f),
+                new Vector3(80f, 0.5f, 60f), 0, floorMat);
 
             return t;
         }
 
-        private static void BuildOuterShell(Transform t, int layer, Material wallMat, Material doorMat)
+        private static void BuildMidSlab(Transform t, int layer, Material mat)
         {
-            BuildWallRun(t, "Wall_North", true, HalfDepth, -HalfWidth, HalfWidth, null, layer, wallMat);
-            BuildWallRun(t, "Wall_West", false, -HalfWidth, -HalfDepth, HalfDepth, null, layer, wallMat);
-            BuildWallRun(t, "Wall_East", false, HalfWidth, -HalfDepth, HalfDepth, null, layer, wallMat);
+            GameObject slab = new GameObject("MidSlab");
+            slab.transform.SetParent(t, false);
+            Transform s = slab.transform;
+
+            float y = StoreyHeight - 0.25f;
+            float westWidth = StairwellX.x + HalfWidth;
+            float eastWidth = HalfWidth - StairwellX.y;
+            float holeWidth = StairwellX.y - StairwellX.x;
+
+            CreateBox(s, "Slab_West", new Vector3(-HalfWidth + westWidth * 0.5f, y, 0f),
+                new Vector3(westWidth, 0.5f, 60f), layer, mat);
+            CreateBox(s, "Slab_East", new Vector3(HalfWidth - eastWidth * 0.5f, y, 0f),
+                new Vector3(eastWidth, 0.5f, 60f), layer, mat);
+
+            float holeCentreX = (StairwellX.x + StairwellX.y) * 0.5f;
+            float southDepth = StairwellZ.x + HalfDepth;
+            float northDepth = HalfDepth - StairwellZ.y;
+
+            CreateBox(s, "Slab_South", new Vector3(holeCentreX, y, -HalfDepth + southDepth * 0.5f),
+                new Vector3(holeWidth, 0.5f, southDepth), layer, mat);
+            CreateBox(s, "Slab_North", new Vector3(holeCentreX, y, HalfDepth - northDepth * 0.5f),
+                new Vector3(holeWidth, 0.5f, northDepth), layer, mat);
+        }
+
+        // A ramp rather than steps: one sloped surface bakes cleanly, so the
+        // stalker can follow the player upstairs on a single NavMesh.
+        private static void BuildStairs(Transform t, int layer, Material mat)
+        {
+            const float bottomZ = 28f;
+            // Overlaps the slab edge slightly so the top lands on solid floor.
+            const float topZ = 16.5f;
+
+            float run = bottomZ - topZ;
+            float rise = StoreyHeight;
+            float angle = Mathf.Atan2(rise, run) * Mathf.Rad2Deg;
+            float length = Mathf.Sqrt(run * run + rise * rise);
+            float centreX = (StairwellX.x + StairwellX.y) * 0.5f;
+
+            GameObject ramp = CreateBox(t, "Stairs",
+                new Vector3(centreX, rise * 0.5f, (bottomZ + topZ) * 0.5f),
+                new Vector3(3f, 0.4f, length), layer, mat);
+
+            // Positive X rotation drops the +Z end, which is the bottom.
+            ramp.transform.rotation = Quaternion.Euler(angle, 0f, 0f);
+        }
+
+        private static void BuildOuterShell(Transform t, int layer, Material wallMat, Material doorMat, float yBase, bool withExit)
+        {
+            BuildWallRun(t, yBase, "Wall_North", true, HalfDepth, -HalfWidth, HalfWidth, null, layer, wallMat);
+            BuildWallRun(t, yBase, "Wall_West", false, -HalfWidth, -HalfDepth, HalfDepth, null, layer, wallMat);
+            BuildWallRun(t, yBase, "Wall_East", false, HalfWidth, -HalfDepth, HalfDepth, null, layer, wallMat);
 
             // South wall carries the entrance the player escapes through.
             List<Vector2> southGaps = new List<Vector2> { new Vector2(-2f, 2f) };
-            BuildWallRun(t, "Wall_South", true, -HalfDepth, -HalfWidth, HalfWidth, southGaps, layer, wallMat);
+            BuildWallRun(t, yBase, "Wall_South", true, -HalfDepth, -HalfWidth, HalfWidth, southGaps, layer, wallMat);
 
-            GameObject door = CreateBox(t, "ExitDoor", new Vector3(0f, WallY, -HalfDepth),
+            if (!withExit) return;
+
+            GameObject door = CreateBox(t, "ExitDoor", new Vector3(0f, WallY + yBase, -HalfDepth),
                 new Vector3(4f, WallHeight, WallThickness), layer, doorMat);
             door.AddComponent<ExitDoor>();
         }
 
-        private static void BuildInteriorWalls(Transform t, int layer, Material mat)
+        private static void BuildInteriorWalls(Transform t, int layer, Material mat, float yBase)
         {
             // North side of the north corridor: theatre, two wards, supply.
             List<Vector2> z13 = CorridorGaps(NorthSouthCorridors);
@@ -162,7 +237,7 @@ namespace FearMe.EditorTools
             AddDoor(z13, 10f);
             AddDoor(z13, 17f);
             AddDoor(z13, 34f);
-            BuildWallRun(t, "Wall_Z13", true, 13f, -HalfWidth, HalfWidth, z13, layer, mat);
+            BuildWallRun(t, yBase, "Wall_Z13", true, 13f, -HalfWidth, HalfWidth, z13, layer, mat);
 
             // South side of the north corridor: radiology, nurses' station, pharmacy, staff.
             List<Vector2> z7 = CorridorGaps(NorthSouthCorridors);
@@ -170,7 +245,7 @@ namespace FearMe.EditorTools
             AddDoor(z7, 12f);
             AddDoor(z7, 34f);
             z7.Add(new Vector2(-16f, -8f)); // nurses' station opens onto the corridor
-            BuildWallRun(t, "Wall_Z7", true, 7f, -HalfWidth, HalfWidth, z7, layer, mat);
+            BuildWallRun(t, yBase, "Wall_Z7", true, 7f, -HalfWidth, HalfWidth, z7, layer, mat);
 
             // North side of the south corridor.
             List<Vector2> zMinus7 = CorridorGaps(NorthSouthCorridors);
@@ -178,7 +253,7 @@ namespace FearMe.EditorTools
             AddDoor(zMinus7, -12f);
             AddDoor(zMinus7, 12f);
             AddDoor(zMinus7, 34f);
-            BuildWallRun(t, "Wall_ZMinus7", true, -7f, -HalfWidth, HalfWidth, zMinus7, layer, mat);
+            BuildWallRun(t, yBase, "Wall_ZMinus7", true, -7f, -HalfWidth, HalfWidth, zMinus7, layer, mat);
 
             // South side of the south corridor: morgue, reception, waiting, generator.
             List<Vector2> zMinus13 = CorridorGaps(NorthSouthCorridors);
@@ -186,7 +261,7 @@ namespace FearMe.EditorTools
             AddDoor(zMinus13, -12f);
             AddDoor(zMinus13, 12f);
             AddDoor(zMinus13, 34f);
-            BuildWallRun(t, "Wall_ZMinus13", true, -13f, -HalfWidth, HalfWidth, zMinus13, layer, mat);
+            BuildWallRun(t, yBase, "Wall_ZMinus13", true, -13f, -HalfWidth, HalfWidth, zMinus13, layer, mat);
 
             // Vertical corridor walls; doors let each wing be entered from the side too.
             float[] verticalLines = { -28f, -22f, -3f, 3f, 22f, 28f };
@@ -196,52 +271,107 @@ namespace FearMe.EditorTools
                 AddDoor(gaps, -20f);
                 AddDoor(gaps, 0f);
                 AddDoor(gaps, 20f);
-                BuildWallRun(t, "Wall_X" + x, false, x, -HalfDepth, HalfDepth, gaps, layer, mat);
+                BuildWallRun(t, yBase, "Wall_X" + x, false, x, -HalfDepth, HalfDepth, gaps, layer, mat);
             }
 
             // Room splits inside the larger blocks.
-            BuildWallRun(t, "Split_WardA", false, -12.5f, 13f, HalfDepth, null, layer, mat);
-            BuildWallRun(t, "Split_WardB", false, 12.5f, 13f, HalfDepth, null, layer, mat);
-            BuildWallRun(t, "Split_Records", false, 12.5f, -7f, 7f, null, layer, mat);
+            BuildWallRun(t, yBase, "Split_WardA", false, -12.5f, 13f, HalfDepth, null, layer, mat);
+            BuildWallRun(t, yBase, "Split_WardB", false, 12.5f, 13f, HalfDepth, null, layer, mat);
+            BuildWallRun(t, yBase, "Split_Records", false, 12.5f, -7f, 7f, null, layer, mat);
         }
 
-        private static void BuildProps(Transform t, int layer, Material mat)
+        private static void BuildProps(Transform t, int layer, Material mat, float yBase)
         {
             GameObject props = new GameObject("Props");
             props.transform.SetParent(t, false);
             Transform p = props.transform;
 
-            // Ward beds.
+            // Ward beds, from the art pack where it is available.
+            GameObject bedPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(BedPrefabPath);
             float[] bedRows = { 18f, 24f };
             float[] bedColumns = { -20f, -15f, -10f, -5.5f, 5.5f, 10f, 15f, 20f };
+
             foreach (float x in bedColumns)
             {
                 foreach (float z in bedRows)
-                    CreateBox(p, "Bed", new Vector3(x, 0.5f, z), new Vector3(2f, 0.5f, 1f), layer, mat);
+                {
+                    // Head against the ward's centre line, as beds are arranged.
+                    float facing = z < 21f ? 0f : 180f;
+                    PlaceBed(p, bedPrefab, new Vector3(x, yBase, z), facing, layer, mat);
+                }
             }
 
             // Reception desk and waiting benches.
-            CreateBox(p, "ReceptionDesk", new Vector3(-10f, 0.55f, -20f), new Vector3(12f, 1.1f, 0.9f), layer, mat);
-            CreateBox(p, "Bench_1", new Vector3(10f, 0.3f, -18f), new Vector3(6f, 0.6f, 0.8f), layer, mat);
-            CreateBox(p, "Bench_2", new Vector3(10f, 0.3f, -22f), new Vector3(6f, 0.6f, 0.8f), layer, mat);
+            CreateBox(p, "ReceptionDesk", new Vector3(-10f, yBase + 0.55f, -20f), new Vector3(12f, 1.1f, 0.9f), layer, mat);
+            CreateBox(p, "Bench_1", new Vector3(10f, yBase + 0.3f, -18f), new Vector3(6f, 0.6f, 0.8f), layer, mat);
+            CreateBox(p, "Bench_2", new Vector3(10f, yBase + 0.3f, -22f), new Vector3(6f, 0.6f, 0.8f), layer, mat);
 
             // Morgue slabs.
-            CreateBox(p, "Slab_1", new Vector3(-36f, 0.5f, -18f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
-            CreateBox(p, "Slab_2", new Vector3(-36f, 0.5f, -22f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
-            CreateBox(p, "Slab_3", new Vector3(-32f, 0.5f, -20f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
+            CreateBox(p, "Slab_1", new Vector3(-36f, yBase + 0.5f, -18f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
+            CreateBox(p, "Slab_2", new Vector3(-36f, yBase + 0.5f, -22f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
+            CreateBox(p, "Slab_3", new Vector3(-32f, yBase + 0.5f, -20f), new Vector3(1.2f, 0.5f, 2.4f), layer, mat);
 
             // Operating table and radiology gear.
-            CreateBox(p, "OperatingTable", new Vector3(-34f, 0.6f, 20f), new Vector3(1.4f, 0.6f, 2.6f), layer, mat);
-            CreateBox(p, "Scanner", new Vector3(-34f, 1f, 0f), new Vector3(3f, 2f, 2f), layer, mat);
+            CreateBox(p, "OperatingTable", new Vector3(-34f, yBase + 0.6f, 20f), new Vector3(1.4f, 0.6f, 2.6f), layer, mat);
+            CreateBox(p, "Scanner", new Vector3(-34f, yBase + 1f, 0f), new Vector3(3f, 2f, 2f), layer, mat);
 
             // Pharmacy shelving.
-            CreateBox(p, "Shelf_1", new Vector3(7f, 1f, 4f), new Vector3(6f, 2f, 0.6f), layer, mat);
-            CreateBox(p, "Shelf_2", new Vector3(7f, 1f, -4f), new Vector3(6f, 2f, 0.6f), layer, mat);
+            CreateBox(p, "Shelf_1", new Vector3(7f, yBase + 1f, 4f), new Vector3(6f, 2f, 0.6f), layer, mat);
+            CreateBox(p, "Shelf_2", new Vector3(7f, yBase + 1f, -4f), new Vector3(6f, 2f, 0.6f), layer, mat);
+        }
+
+        // Uses the pack's bed prefab when present, falling back to a box so
+        // the layout still reads if the art is missing.
+        private static void PlaceBed(Transform parent, GameObject prefab, Vector3 position,
+            float facing, int layer, Material fallbackMaterial)
+        {
+            if (prefab == null)
+            {
+                CreateBox(parent, "Bed", position + Vector3.up * 0.5f,
+                    new Vector3(2f, 0.5f, 1f), layer, fallbackMaterial);
+                return;
+            }
+
+            GameObject bed = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+            bed.transform.position = position;
+            bed.transform.rotation = Quaternion.Euler(0f, facing, 0f);
+            SetLayerRecursive(bed, layer);
+            AddBoundsCollider(bed);
+        }
+
+        private static void SetLayerRecursive(GameObject go, int layer)
+        {
+            go.layer = layer;
+            foreach (Transform child in go.transform)
+                SetLayerRecursive(child.gameObject, layer);
+        }
+
+        // The pack's meshes import without colliders, so the NavMesh would
+        // route around a bed the player could still walk straight through.
+        private static void AddBoundsCollider(GameObject go)
+        {
+            if (go.GetComponentInChildren<Collider>() != null) return;
+
+            Renderer[] renderers = go.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return;
+
+            Bounds bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
+
+            BoxCollider box = go.AddComponent<BoxCollider>();
+            box.center = go.transform.InverseTransformPoint(bounds.center);
+            box.size = bounds.size;
         }
 
         private static void BuildCeilingLights(Transform level)
         {
-            GameObject lights = new GameObject("CeilingLights");
+            BuildCeilingLights(level, 0f);
+            BuildCeilingLights(level, StoreyHeight);
+        }
+
+        private static void BuildCeilingLights(Transform level, float yBase)
+        {
+            GameObject lights = new GameObject("CeilingLights_" + Mathf.RoundToInt(yBase));
             lights.transform.SetParent(level, false);
 
             Vector3[] positions =
@@ -257,7 +387,7 @@ namespace FearMe.EditorTools
             {
                 GameObject go = new GameObject("CeilingLight_" + i);
                 go.transform.SetParent(lights.transform, false);
-                go.transform.position = positions[i];
+                go.transform.position = positions[i] + Vector3.up * yBase;
 
                 Light light = go.AddComponent<Light>();
                 light.type = LightType.Point;
@@ -340,7 +470,17 @@ namespace FearMe.EditorTools
                 new Vector3(25f, 0f, 25f),
                 new Vector3(25f, 0f, 10f),
                 new Vector3(25f, 0f, -10f),
-                new Vector3(0f, 0f, -10f)
+                new Vector3(0f, 0f, -10f),
+
+                // Upstairs, reached via the stairwell in Supply.
+                new Vector3(34f, StoreyHeight, 15f),
+                new Vector3(25f, StoreyHeight, 10f),
+                new Vector3(0f, StoreyHeight, 10f),
+                new Vector3(-25f, StoreyHeight, 10f),
+                new Vector3(-25f, StoreyHeight, -10f),
+                new Vector3(0f, StoreyHeight, -10f),
+                new Vector3(25f, StoreyHeight, -10f),
+                new Vector3(34f, StoreyHeight, 10f)
             };
 
             Transform[] waypoints = new Transform[points.Length];
@@ -686,7 +826,7 @@ namespace FearMe.EditorTools
         }
 
         // Builds a straight wall along one axis, skipping any gap intervals.
-        private static void BuildWallRun(Transform parent, string name, bool alongX, float fixedCoord,
+        private static void BuildWallRun(Transform parent, float yBase, string name, bool alongX, float fixedCoord,
             float start, float end, List<Vector2> gaps, int layer, Material mat)
         {
             List<Vector2> sorted = gaps != null ? new List<Vector2>(gaps) : new List<Vector2>();
@@ -702,25 +842,26 @@ namespace FearMe.EditorTools
                 if (gapEnd <= cursor) continue;
 
                 if (gapStart > cursor)
-                    CreateWallSegment(parent, name + "_" + index++, alongX, fixedCoord, cursor, gapStart, layer, mat);
+                    CreateWallSegment(parent, yBase, name + "_" + index++, alongX, fixedCoord, cursor, gapStart, layer, mat);
 
                 cursor = gapEnd;
             }
 
             if (cursor < end)
-                CreateWallSegment(parent, name + "_" + index, alongX, fixedCoord, cursor, end, layer, mat);
+                CreateWallSegment(parent, yBase, name + "_" + index, alongX, fixedCoord, cursor, end, layer, mat);
         }
 
-        private static void CreateWallSegment(Transform parent, string name, bool alongX, float fixedCoord,
+        private static void CreateWallSegment(Transform parent, float yBase, string name, bool alongX, float fixedCoord,
             float from, float to, int layer, Material mat)
         {
             float length = to - from;
             if (length < 0.05f) return;
 
             float mid = (from + to) * 0.5f;
+            float y = WallY + yBase;
             Vector3 center = alongX
-                ? new Vector3(mid, WallY, fixedCoord)
-                : new Vector3(fixedCoord, WallY, mid);
+                ? new Vector3(mid, y, fixedCoord)
+                : new Vector3(fixedCoord, y, mid);
             Vector3 size = alongX
                 ? new Vector3(length, WallHeight, WallThickness)
                 : new Vector3(WallThickness, WallHeight, length);
