@@ -382,19 +382,20 @@ namespace FearMe.EditorTools
             {
                 if (placed >= HidingSpots) break;
 
-                GameObject go = new GameObject("HideVolume_" + (placed + 1));
-                go.transform.SetParent(root.transform, false);
-                go.transform.position = spot + Vector3.up;
+                // Facing the player's spawn is a reasonable default; nudge the
+                // rotation by hand if a closet ends up backed into a wall.
+                Vector3 toSpawn = playerSpawn - spot;
+                toSpawn.y = 0f;
+                float yaw = toSpawn.sqrMagnitude > 0.01f
+                    ? Quaternion.LookRotation(toSpawn).eulerAngles.y
+                    : 0f;
 
-                BoxCollider box = go.AddComponent<BoxCollider>();
-                box.isTrigger = true;
-                box.size = new Vector3(1.6f, 2f, 1.6f);
-                go.AddComponent<HidingSpot>();
+                ClosetBuilder.Create(root.transform, spot, yaw, 0, null);
                 placed++;
             }
 
-            Debug.Log($"[FearMe] Placed {placed} hiding volume(s). They rely on the level's own " +
-                "geometry for cover, so move any that sit in the open.");
+            Debug.Log($"[FearMe] Placed {placed} closet(s). Check none are backed into a wall - " +
+                "the opening faces the player's start by default.");
         }
 
         private static void RegisterScene(string path)

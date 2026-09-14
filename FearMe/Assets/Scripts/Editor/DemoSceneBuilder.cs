@@ -90,11 +90,11 @@ namespace FearMe.EditorTools
             PatrolRoute route = BuildPatrolRoute();
             EnemyStalkerAI enemy = BuildEnemy(enemyMat, player.GetComponent<PlayerController>(), route, levelMask, new Vector3(25f, 1f, 20f));
 
-            // Alcoves to break line of sight, spread across the wings.
-            BuildHidingSpot(level, new Vector3(-18f, 0f, 27f), 180f, levelLayer, wallMat);
-            BuildHidingSpot(level, new Vector3(18f, 0f, -26f), 0f, levelLayer, wallMat);
-            BuildHidingSpot(level, new Vector3(35f, 0f, 3f), 270f, levelLayer, wallMat);
-            BuildHidingSpot(level, new Vector3(-19f, 0f, -26f), 0f, levelLayer, wallMat);
+            // Closets to climb into, spread across the wings.
+            ClosetBuilder.Create(level, new Vector3(-18f, 0f, 27f), 180f, levelLayer, wallMat);
+            ClosetBuilder.Create(level, new Vector3(18f, 0f, -26f), 0f, levelLayer, wallMat);
+            ClosetBuilder.Create(level, new Vector3(35f, 0f, 3f), 270f, levelLayer, wallMat);
+            ClosetBuilder.Create(level, new Vector3(-19f, 0f, -26f), 0f, levelLayer, wallMat);
 
             GameObject managers = BuildManagers(player, enemy);
 
@@ -527,87 +527,6 @@ namespace FearMe.EditorTools
             SetFloatField(ai, "catchDistance", 2f);
 
             return ai;
-        }
-
-        private static void BuildHidingSpot(Transform levelRoot, Vector3 position, float yaw, int levelLayer, Material mat)
-        {
-            GameObject spot = new GameObject("HidingSpot");
-            spot.transform.SetParent(levelRoot, false);
-            spot.transform.position = position;
-            spot.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
-
-            // Three solid sides so it genuinely blocks the stalker's line of sight.
-            CreateBox(spot.transform, "Back", new Vector3(0f, 1.1f, -0.9f), new Vector3(2f, 2.2f, 0.2f), levelLayer, mat);
-            CreateBox(spot.transform, "Left", new Vector3(-0.9f, 1.1f, 0f), new Vector3(0.2f, 2.2f, 2f), levelLayer, mat);
-            CreateBox(spot.transform, "Right", new Vector3(0.9f, 1.1f, 0f), new Vector3(0.2f, 2.2f, 2f), levelLayer, mat);
-
-            GameObject trigger = new GameObject("HideVolume");
-            trigger.transform.SetParent(spot.transform, false);
-            trigger.transform.localPosition = new Vector3(0f, 1f, 0f);
-            BoxCollider box = trigger.AddComponent<BoxCollider>();
-            box.isTrigger = true;
-            box.size = new Vector3(1.4f, 2f, 1.4f);
-            trigger.AddComponent<HidingSpot>();
-        }
-
-        internal static GameObject BuildManagers(GameObject player, EnemyStalkerAI enemy)
-        {
-            GameObject managers = new GameObject("GameManager");
-
-            ObjectiveTracker objectives = managers.AddComponent<ObjectiveTracker>();
-            SetIntField(objectives, "keysRequired", 3);
-
-            GameObject canvasGO = new GameObject("FadeCanvas");
-            canvasGO.transform.SetParent(managers.transform, false);
-            Canvas canvas = canvasGO.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 100;
-            canvasGO.AddComponent<CanvasScaler>();
-            CanvasGroup group = canvasGO.AddComponent<CanvasGroup>();
-            group.alpha = 0f;
-            group.blocksRaycasts = false;
-            group.interactable = false;
-
-            GameObject fadeGO = new GameObject("FadeImage");
-            fadeGO.transform.SetParent(canvasGO.transform, false);
-            Image image = fadeGO.AddComponent<Image>();
-            image.color = Color.black;
-            RectTransform rect = image.rectTransform;
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
-
-            AudioSource stinger = managers.AddComponent<AudioSource>();
-            stinger.playOnAwake = false;
-            managers.AddComponent<AudioCategoryVolume>(); // SFX slider reaches the sting
-
-            GameOverController flow = managers.AddComponent<GameOverController>();
-            SetObjectField(flow, "fadeCanvasGroup", group);
-            SetObjectField(flow, "jumpscareAudio", stinger);
-            SetObjectField(flow, "playerInputToDisable", player.GetComponent<PlayerInput>());
-
-            DemoHUD hud = managers.AddComponent<DemoHUD>();
-            SetObjectField(hud, "objectives", objectives);
-            SetObjectField(hud, "interactor", player.GetComponent<PlayerInteractor>());
-            SetObjectField(hud, "gameFlow", flow);
-
-            if (enemy.onPlayerCaught == null)
-                enemy.onPlayerCaught = new UnityEngine.Events.UnityEvent();
-            UnityEventTools.AddPersistentListener(enemy.onPlayerCaught, flow.OnPlayerCaught);
-
-            return managers;
-        }
-
-        internal static void BuildFog(GameObject managers, Transform followTarget)
-        {
-            Material hazeMat = GetOrCreateHazeMaterial(GetOrCreateSoftParticleTexture());
-            ParticleSystem haze = BuildGroundHaze(hazeMat);
-
-            VolumetricFogController fog = managers.AddComponent<VolumetricFogController>();
-            SetFogProfile(fog, "baseProfile", "Corridors", 0.045f, new Color(0.03f, 0.035f, 0.04f), 14f, 1.5f);
-            SetObjectField(fog, "followTarget", followTarget);
-            SetObjectField(fog, "hazeParticles", haze);
         }
 
         private static ParticleSystem BuildGroundHaze(Material hazeMat)

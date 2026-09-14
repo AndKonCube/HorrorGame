@@ -43,13 +43,19 @@ namespace FearMe.Player
         private float pitch;
         private bool isCrouching;
         private bool isSprinting;
-        private bool inHidingZone;
         private float currentHeight;
+        private float yaw;
+
+        private bool confined;
+        private float confinedYawCentre;
+        private float confinedYawLimit;
+        private float confinedPitchLimit;
 
         public bool IsCrouching => isCrouching;
 
-        // Fully concealed only while crouched inside a hiding zone.
-        public bool IsHidden => inHidingZone && isCrouching;
+        // Shut inside a closet: out of sight until you step back out.
+        public bool IsHidden => confined;
+        public bool IsConfined => confined;
 
         public float CurrentNoiseRadius
         {
@@ -81,6 +87,7 @@ namespace FearMe.Player
             crouchAction.performed += crouchHandler;
 
             currentHeight = standHeight;
+            yaw = transform.eulerAngles.y;
         }
 
         // The action asset outlives this component, so a lambda left subscribed
@@ -100,6 +107,10 @@ namespace FearMe.Player
         private void Update()
         {
             HandleLook();
+
+            // Inside a closet you can look, but not walk.
+            if (confined) return;
+
             HandleCrouchTransition();
             HandleMove();
         }
@@ -113,10 +124,19 @@ namespace FearMe.Player
             float sensitivity = settings.mouseSensitivity;
             float vertical = settings.invertLook ? -1f : 1f;
 
-            transform.Rotate(Vector3.up * (lookInput.x * sensitivity));
-
+            yaw += lookInput.x * sensitivity;
             pitch -= lookInput.y * sensitivity * vertical;
             pitch = Mathf.Clamp(pitch, -maxLookAngle, maxLookAngle);
+
+            if (confined)
+            {
+                // Penned in: you can only look out through the gap.
+                yaw = Mathf.Clamp(yaw, confinedYawCentre - confinedYawLimit,
+                    confinedYawCentre + confinedYawLimit);
+                pitch = Mathf.Clamp(pitch, -confinedPitchLimit, confinedPitchLimit);
+            }
+
+            transform.rotation = Quaternion.Euler(0f, yaw, 0f);
             if (playerCamera != null)
                 playerCamera.transform.localRotation = Quaternion.Euler(pitch, 0f, 0f);
         }
@@ -153,10 +173,35 @@ namespace FearMe.Player
             isCrouching = !isCrouching;
         }
 
-        // Called by HidingSpot trigger volumes.
-        public void SetInHidingZone(bool value)
+        // Called by HidingSpot when climbing into or out of a closet.
+        public void EnterConfinement(Vector3 position, float facingYaw, float yawLimit, float pitchLimit)
         {
-            inHidingZone = value;
+            confined = true;
+            confinedYawCentre = facingYaw;
+            confinedYawLimit = yawLimit;
+            confinedPitchLimit = pitchLimit;
+
+            isCrouching = false;
+            yaw = facingYaw;
+            pitch = Mathf.Clamp(pitch, -pitchLimit, pitchLimit);
+
+            Teleport(position);
+        }
+
+        public void ExitConfinement(Vector3 position)
+        {
+            confined = false;
+            Teleport(position);
+        }
+
+        // A CharacterController resists being moved directly, so switch it off
+        // for the frame the position changes.
+        private void Teleport(Vector3 position)
+        {
+            bool wasEnabled = controller.enabled;
+            controller.enabled = false;
+            transform.position = position;
+            controller.enabled = wasEnabled;
         }
     }
 }

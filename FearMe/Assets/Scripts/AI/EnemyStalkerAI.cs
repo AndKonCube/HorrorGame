@@ -129,6 +129,16 @@ namespace FearMe.AI
             GoToNextPatrolPoint();
         }
 
+        // After losing the player it keeps working the area rather than
+        // wandering off, so a closet stays a tense place to sit.
+        private void ResumePatrolNear(Vector3 position)
+        {
+            if (patrolRoute != null && patrolRoute.Count > 0)
+                patrolIndex = patrolRoute.IndexOfNearest(position);
+
+            EnterPatrol();
+        }
+
         private void GoToNextPatrolPoint()
         {
             if (patrolRoute == null || patrolRoute.Count == 0) return;
@@ -197,7 +207,7 @@ namespace FearMe.AI
             if (ReachedDestination())
             {
                 stateTimer += Time.deltaTime;
-                if (stateTimer >= investigateWaitTime) EnterPatrol();
+                if (stateTimer >= investigateWaitTime) ResumePatrolNear(lastKnownPosition);
             }
         }
 
@@ -239,7 +249,7 @@ namespace FearMe.AI
             if (ReachedDestination())
             {
                 stateTimer += Time.deltaTime;
-                if (stateTimer >= searchDuration) EnterPatrol();
+                if (stateTimer >= searchDuration) ResumePatrolNear(lastKnownPosition);
             }
         }
 

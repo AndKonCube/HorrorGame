@@ -13,6 +13,27 @@ namespace FearMe.AI
             return waypoints[index % waypoints.Length];
         }
 
+        // Lets a searcher pick up its round near wherever it lost the player,
+        // instead of resuming from the far side of the building.
+        public int IndexOfNearest(Vector3 position)
+        {
+            int nearest = 0;
+            float best = float.MaxValue;
+
+            for (int i = 0; i < Count; i++)
+            {
+                if (waypoints[i] == null) continue;
+
+                float distance = (waypoints[i].position - position).sqrMagnitude;
+                if (distance >= best) continue;
+
+                best = distance;
+                nearest = i;
+            }
+
+            return nearest;
+        }
+
         private void OnDrawGizmos()
         {
             if (waypoints == null || waypoints.Length == 0) return;
