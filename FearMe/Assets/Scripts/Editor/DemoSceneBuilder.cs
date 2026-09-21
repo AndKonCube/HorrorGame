@@ -122,6 +122,16 @@ namespace FearMe.EditorTools
             Debug.Log("[FearMe] Hospital demo scene built at " + ScenePath + ". Press Play to run it.");
         }
 
+        public static void BuildFog(GameObject managers, Transform transform)
+        {
+            throw new System.NotImplementedException();
+        }
+
+        public static GameObject BuildManagers(GameObject player, EnemyStalkerAI enemy)
+        {
+            throw new System.NotImplementedException();
+        }
+
         internal static void BuildAtmosphere()
         {
             RenderSettings.fog = true;
