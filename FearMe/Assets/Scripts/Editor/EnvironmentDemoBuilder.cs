@@ -71,6 +71,7 @@ namespace FearMe.EditorTools
             Material exitMat = DemoSceneBuilder.GetOrCreateMaterial("Demo_Door", new Color(0.30f, 0.18f, 0.08f));
 
             DemoSceneBuilder.BuildAtmosphere();
+            BuildExterior(spots);
 
             Vector3 playerSpawn = spots[0];
             Vector3 enemySpawn = Farthest(spots, playerSpawn);
@@ -253,6 +254,19 @@ namespace FearMe.EditorTools
             }
 
             return kept;
+        }
+
+        // The imported environment has no known dimensions, so the treeline is
+        // sized from the walkable area itself.
+        private static void BuildExterior(List<Vector3> spots)
+        {
+            Bounds bounds = new Bounds(spots[0], Vector3.zero);
+            foreach (Vector3 spot in spots) bounds.Encapsulate(spot);
+
+            ExteriorBuilder.Build(
+                Mathf.Max(10f, bounds.extents.x),
+                Mathf.Max(10f, bounds.extents.z),
+                bounds.min.y - 0.5f);
         }
 
         private static Vector3 Farthest(List<Vector3> points, Vector3 from)
