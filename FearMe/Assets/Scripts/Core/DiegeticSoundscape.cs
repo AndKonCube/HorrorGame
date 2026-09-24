@@ -71,9 +71,12 @@ namespace FearMe.Core
             nextPlayTime = Time.time + Random.Range(calmInterval.x, calmInterval.y) * scale;
         }
 
+        private Transform Listener =>
+            PlayerRegistry.Local != null ? PlayerRegistry.Local.transform : listener;
+
         private void PlayOne()
         {
-            if (listener == null) return;
+            if (Listener == null) return;
 
             AudioClip clip = ChooseClip();
             if (clip == null) return;
@@ -111,10 +114,13 @@ namespace FearMe.Core
         // walk to rather than out of the middle of a wall.
         private bool TryFindSpot(out Vector3 spot)
         {
+            spot = Vector3.zero;
+            if (Listener == null) return false;
+
             for (int attempt = 0; attempt < 8; attempt++)
             {
                 Vector2 offset = Random.insideUnitCircle.normalized * Random.Range(minDistance, maxDistance);
-                Vector3 candidate = listener.position + new Vector3(offset.x, 0f, offset.y);
+                Vector3 candidate = Listener.position + new Vector3(offset.x, 0f, offset.y);
 
                 // Same storey only: a creak from the floor above reads as a
                 // bug, not atmosphere.

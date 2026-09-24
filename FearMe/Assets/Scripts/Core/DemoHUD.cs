@@ -63,6 +63,35 @@ namespace FearMe.Core
                 note);
         }
 
+        // Your own bleed-out, and a nudge when a teammate is waiting for help.
+        private void DrawVitals()
+        {
+            PlayerController local = PlayerRegistry.Local;
+            if (local == null) return;
+
+            PlayerVitals mine = local.GetComponent<PlayerVitals>();
+            if (mine != null && mine.IsDown && !mine.IsDead)
+            {
+                GUIStyle downed = new GUIStyle(centerStyle) { fontSize = 30 };
+                downed.normal.textColor = new Color(0.75f, 0.1f, 0.1f);
+                GUI.Label(new Rect(0f, Screen.height * 0.62f, Screen.width, 40f),
+                    $"DOWN - {Mathf.CeilToInt(mine.BleedOutRemaining)}s", downed);
+                return;
+            }
+
+            foreach (PlayerController other in PlayerRegistry.All)
+            {
+                if (other == null || other == local) continue;
+
+                PlayerVitals vitals = other.GetComponent<PlayerVitals>();
+                if (vitals == null || !vitals.IsDown || vitals.IsDead) continue;
+
+                GUI.Label(new Rect(24f, 76f, 460f, 30f),
+                    $"Teammate down - {Mathf.CeilToInt(vitals.BleedOutRemaining)}s", textStyle);
+                return;
+            }
+        }
+
         private void OnGUI()
         {
             BuildStyles();
@@ -82,6 +111,8 @@ namespace FearMe.Core
             }
 
             GUI.Label(new Rect(24f, 48f, 460f, 30f), "F flashlight - C crouch - Shift run", textStyle);
+
+            DrawVitals();
 
             // Crosshair
             float cx = Screen.width * 0.5f;

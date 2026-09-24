@@ -26,10 +26,25 @@ namespace FearMe.Player
 
             Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
             if (Physics.Raycast(ray, out RaycastHit hit, interactRange, ~0, QueryTriggerInteraction.Ignore))
-                CurrentTarget = hit.collider.GetComponentInParent<Interactable>();
+            {
+                Interactable found = hit.collider.GetComponentInParent<Interactable>();
 
-            if (CurrentTarget != null && interactAction.WasPressedThisFrame())
+                // A blank prompt means "nothing to do here" - a teammate who
+                // is upright, say - so it should not read as a target.
+                if (found != null && !string.IsNullOrEmpty(found.Prompt)) CurrentTarget = found;
+            }
+
+            if (CurrentTarget == null) return;
+
+            // Held rather than tapped, so reviving can accumulate over time.
+            if (CurrentTarget.HoldToUse)
+            {
+                if (interactAction.IsPressed()) CurrentTarget.Interact();
+            }
+            else if (interactAction.WasPressedThisFrame())
+            {
                 CurrentTarget.Interact();
+            }
         }
     }
 }

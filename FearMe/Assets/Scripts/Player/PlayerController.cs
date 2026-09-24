@@ -1,3 +1,4 @@
+using FearMe.Core;
 using FearMe.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -50,8 +51,13 @@ namespace FearMe.Player
         private float confinedYawCentre;
         private float confinedYawLimit;
         private float confinedPitchLimit;
+        private bool incapacitated;
+
+        // Set false for remote players once netcode owns them.
+        public bool IsLocalPlayer { get; set; } = true;
 
         public bool IsCrouching => isCrouching;
+        public bool IsIncapacitated => incapacitated;
 
         // Shut inside a closet: out of sight until you step back out.
         public bool IsHidden => confined;
@@ -98,18 +104,35 @@ namespace FearMe.Player
                 crouchAction.performed -= crouchHandler;
         }
 
+        private void OnEnable()
+        {
+            PlayerRegistry.Register(this);
+        }
+
+        private void OnDisable()
+        {
+            PlayerRegistry.Unregister(this);
+        }
+
         private void Start()
         {
+            if (!IsLocalPlayer) return;
+
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
 
         private void Update()
         {
+            // A remote player is driven by the network, not by this machine's
+            // input, so it must not read the local devices.
+            if (!IsLocalPlayer) return;
+
             HandleLook();
 
-            // Inside a closet you can look, but not walk.
-            if (confined) return;
+            // Inside a closet, or on the floor waiting for help: you can look
+            // around, but going anywhere is not on offer.
+            if (confined || incapacitated) return;
 
             HandleCrouchTransition();
             HandleMove();
@@ -186,6 +209,20 @@ namespace FearMe.Player
             pitch = Mathf.Clamp(pitch, -pitchLimit, pitchLimit);
 
             Teleport(position);
+        }
+
+        // Downed: dropped to the floor, no movement, but still able to look
+        // around and watch for a teammate.
+        public void SetIncapacitated(bool value)
+        {
+            incapacitated = value;
+
+            float targetHeight = value ? crouchHeight : standHeight;
+            currentHeight = targetHeight;
+            controller.height = targetHeight;
+            controller.center = new Vector3(0f, targetHeight * 0.5f, 0f);
+
+            if (value) isCrouching = false;
         }
 
         public void ExitConfinement(Vector3 position)

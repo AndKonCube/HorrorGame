@@ -452,6 +452,9 @@ namespace FearMe.EditorTools
             Flashlight flashlight = player.AddComponent<Flashlight>();
             SetObjectField(flashlight, "lightSource", beam);
 
+            // Being caught downs this player rather than ending the run.
+            player.AddComponent<PlayerVitals>();
+
             return player;
         }
 

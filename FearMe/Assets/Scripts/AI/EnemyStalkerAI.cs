@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FearMe.Core;
 using FearMe.Player;
 using UnityEngine;
@@ -15,6 +16,7 @@ namespace FearMe.AI
         private enum State { Patrol, Investigate, Chase, Search }
 
         [Header("References")]
+        [Tooltip("Optional fallback; players normally register themselves.")]
         [SerializeField] private PlayerController player;
         [SerializeField] private PatrolRoute patrolRoute;
         [Tooltip("Vision origin, e.g. the enemy's head. Defaults to this transform.")]
@@ -49,6 +51,7 @@ namespace FearMe.AI
         private float sightLostTimer;
         private bool warnedOffMesh;
         private float destinationSetAt;
+        private PlayerController quarry;
 
         private void Awake()
         {
@@ -76,50 +79,83 @@ namespace FearMe.AI
                 return;
             }
 
-            bool canSeePlayer = CanSeePlayer();
-            bool canHearPlayer = CanHearPlayer();
+            PlayerController seen = FindVisiblePlayer();
+            PlayerController heard = seen == null ? FindAudiblePlayer() : seen;
+            if (seen != null) quarry = seen;
 
             switch (state)
             {
                 case State.Patrol:
-                    TickPatrol(canSeePlayer, canHearPlayer);
+                    TickPatrol(seen, heard);
                     break;
                 case State.Investigate:
-                    TickInvestigate(canSeePlayer, canHearPlayer);
+                    TickInvestigate(seen, heard);
                     break;
                 case State.Chase:
-                    TickChase(canSeePlayer);
+                    TickChase(seen);
                     break;
                 case State.Search:
-                    TickSearch(canSeePlayer, canHearPlayer);
+                    TickSearch(seen, heard);
                     break;
             }
 
             CheckCatch();
         }
 
-        private bool CanSeePlayer()
+        // Whoever is closest and actually in view: with two players it should
+        // commit to one rather than flicker between them.
+        private PlayerController FindVisiblePlayer()
         {
-            if (player == null || player.IsHidden) return false;
+            PlayerController best = null;
+            float bestDistance = float.MaxValue;
 
-            Vector3 toPlayer = player.transform.position - eyes.position;
-            float distance = toPlayer.magnitude;
-            if (distance > viewDistance) return false;
+            foreach (PlayerController candidate in Targets())
+            {
+                if (candidate.IsHidden) continue;
 
-            float angle = Vector3.Angle(eyes.forward, toPlayer);
-            if (angle > viewAngle * 0.5f) return false;
+                Vector3 toPlayer = candidate.transform.position - eyes.position;
+                float distance = toPlayer.magnitude;
+                if (distance > viewDistance || distance >= bestDistance) continue;
 
-            if (Physics.Raycast(eyes.position, toPlayer.normalized, distance, obstructionMask))
-                return false; // something is blocking line of sight
+                if (Vector3.Angle(eyes.forward, toPlayer) > viewAngle * 0.5f) continue;
+                if (Physics.Raycast(eyes.position, toPlayer.normalized, distance, obstructionMask))
+                    continue; // something is blocking line of sight
 
-            return true;
+                best = candidate;
+                bestDistance = distance;
+            }
+
+            return best;
         }
 
-        private bool CanHearPlayer()
+        private PlayerController FindAudiblePlayer()
         {
-            if (player == null) return false;
-            float distance = Vector3.Distance(transform.position, player.transform.position);
-            return distance <= player.CurrentNoiseRadius;
+            foreach (PlayerController candidate in Targets())
+            {
+                float distance = Vector3.Distance(transform.position, candidate.transform.position);
+                if (distance <= candidate.CurrentNoiseRadius) return candidate;
+            }
+
+            return null;
+        }
+
+        // Registered players, ignoring anyone already down - it has dealt with
+        // them and should go after whoever is still up.
+        private IEnumerable<PlayerController> Targets()
+        {
+            IReadOnlyList<PlayerController> registered = PlayerRegistry.All;
+
+            if (registered.Count == 0)
+            {
+                if (player != null) yield return player;
+                yield break;
+            }
+
+            foreach (PlayerController candidate in registered)
+            {
+                if (candidate == null || PlayerRegistry.IsOutOfAction(candidate)) continue;
+                yield return candidate;
+            }
         }
 
         private void EnterPatrol()
@@ -175,10 +211,10 @@ namespace FearMe.AI
             return agent.remainingDistance <= Mathf.Max(0.5f, agent.stoppingDistance);
         }
 
-        private void TickPatrol(bool canSee, bool canHear)
+        private void TickPatrol(PlayerController seen, PlayerController heard)
         {
-            if (canSee) { EnterChase(); return; }
-            if (canHear) { EnterInvestigate(player.transform.position); return; }
+            if (seen != null) { EnterChase(); return; }
+            if (heard != null) { EnterInvestigate(heard.transform.position); return; }
 
             if (ReachedDestination())
                 GoToNextPatrolPoint();
@@ -193,12 +229,12 @@ namespace FearMe.AI
             stateTimer = 0f;
         }
 
-        private void TickInvestigate(bool canSee, bool canHear)
+        private void TickInvestigate(PlayerController seen, PlayerController heard)
         {
-            if (canSee) { EnterChase(); return; }
-            if (canHear)
+            if (seen != null) { EnterChase(); return; }
+            if (heard != null)
             {
-                lastKnownPosition = player.transform.position;
+                lastKnownPosition = heard.transform.position;
                 SetDestinationOnMesh(lastKnownPosition);
                 stateTimer = 0f;
                 return;
@@ -218,11 +254,12 @@ namespace FearMe.AI
             sightLostTimer = 0f;
         }
 
-        private void TickChase(bool canSee)
+        private void TickChase(PlayerController seen)
         {
-            if (canSee)
+            if (seen != null)
             {
-                lastKnownPosition = player.transform.position;
+                quarry = seen;
+                lastKnownPosition = seen.transform.position;
                 SetDestinationOnMesh(lastKnownPosition);
                 sightLostTimer = 0f;
             }
@@ -241,10 +278,10 @@ namespace FearMe.AI
             stateTimer = 0f;
         }
 
-        private void TickSearch(bool canSee, bool canHear)
+        private void TickSearch(PlayerController seen, PlayerController heard)
         {
-            if (canSee) { EnterChase(); return; }
-            if (canHear) { EnterInvestigate(player.transform.position); return; }
+            if (seen != null) { EnterChase(); return; }
+            if (heard != null) { EnterInvestigate(heard.transform.position); return; }
 
             if (ReachedDestination())
             {
@@ -255,10 +292,23 @@ namespace FearMe.AI
 
         private void CheckCatch()
         {
-            if (state != State.Chase || player == null) return;
+            if (state != State.Chase) return;
 
-            float distance = Vector3.Distance(transform.position, player.transform.position);
-            if (distance <= catchDistance)
+            PlayerController victim = PlayerRegistry.Nearest(transform.position) ?? quarry;
+            if (victim == null) return;
+
+            if (Vector3.Distance(transform.position, victim.transform.position) > catchDistance) return;
+
+            // Downs this player and keeps hunting. Only when nobody is left
+            // standing does the run actually end.
+            PlayerVitals vitals = victim.GetComponent<PlayerVitals>();
+            if (vitals != null && !vitals.IsDown)
+            {
+                vitals.GoDown();
+                EnterSearch();
+            }
+
+            if (!PlayerRegistry.AnyAlive())
             {
                 onPlayerCaught?.Invoke();
                 agent.isStopped = true;

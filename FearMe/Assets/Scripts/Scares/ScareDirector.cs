@@ -13,6 +13,7 @@ namespace FearMe.Scares
     public class ScareDirector : MonoBehaviour
     {
         [Header("References")]
+        [Tooltip("Optional fallback; the local player is used when registered.")]
         [SerializeField] private PlayerController player;
         [SerializeField] private Camera playerCamera;
         [Tooltip("Used only for distance, so the director knows when a chase is on.")]
@@ -34,6 +35,10 @@ namespace FearMe.Scares
         [SerializeField] private float tensionFall = 0.12f;
 
         public float Tension { get; private set; }
+
+        // Scares are staged for the player sitting at this machine; the other
+        // one gets their own from their own client.
+        private PlayerController Subject => PlayerRegistry.Local != null ? PlayerRegistry.Local : player;
 
         private bool staging;
         private float calmTimer;
@@ -74,9 +79,10 @@ namespace FearMe.Scares
         {
             float threat = 0f;
 
-            if (stalker != null && player != null)
+            PlayerController subject = Subject;
+            if (stalker != null && subject != null)
             {
-                float distance = Vector3.Distance(stalker.position, player.transform.position);
+                float distance = Vector3.Distance(stalker.position, subject.transform.position);
                 if (distance < threatRadius)
                     threat = 1f - (distance / threatRadius);
             }
@@ -139,9 +145,9 @@ namespace FearMe.Scares
         {
             return new ScareContext
             {
-                Player = player != null ? player.transform : transform,
+                Player = Subject != null ? Subject.transform : transform,
                 Eye = playerCamera != null ? playerCamera.transform : transform,
-                PlayerHidden = player != null && player.IsHidden,
+                PlayerHidden = Subject != null && Subject.IsHidden,
                 Tension = Tension
             };
         }
