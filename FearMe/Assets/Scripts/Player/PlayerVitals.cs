@@ -34,7 +34,25 @@ namespace FearMe.Player
         public float BleedOutFraction => Mathf.Clamp01(bleedOutRemaining / Mathf.Max(0.01f, bleedOutSeconds));
         public float ReviveFraction => Mathf.Clamp01(reviveProgress / Mathf.Max(0.01f, reviveSeconds));
 
-        public override string Prompt => IsDown && !IsDead ? "Hold to revive" : string.Empty;
+        // Dragged or caged, you are out of reach of a simple revive: someone
+        // has to stop the stalker or break the cage.
+        public Captivity Captivity { get; private set; }
+        public ICaptiveAnchor Anchor { get; private set; }
+
+        public override string Prompt
+        {
+            get
+            {
+                if (!IsDown || IsDead) return string.Empty;
+                if (Captivity == Captivity.None) return "Hold to revive";
+
+                // Looking at a caged friend means looking at the lock: their
+                // body is in front of it and would otherwise block the ray.
+                if (Captivity == Captivity.Caged && Anchor is Interactable cage) return cage.Prompt;
+
+                return string.Empty;
+            }
+        }
 
         public override bool HoldToUse => true;
 
@@ -46,6 +64,14 @@ namespace FearMe.Player
         private void Update()
         {
             if (!IsDown || IsDead) return;
+
+            // Whatever has you decides where you are. Only the owner moves
+            // their player; the other machine sees it through the network.
+            if (Captivity != Captivity.None && Anchor != null && self.IsLocalPlayer)
+            {
+                Transform hold = Anchor.HoldPoint;
+                if (hold != null) self.Pin(hold.position);
+            }
 
             if (OwnsTimer)
             {
@@ -82,6 +108,13 @@ namespace FearMe.Player
         {
             if (!IsDown || IsDead) return;
 
+            if (Captivity == Captivity.Caged && Anchor is Interactable cage)
+            {
+                cage.Interact();
+                return;
+            }
+            if (Captivity != Captivity.None) return;
+
             PlayerController rescuer = PlayerRegistry.Local;
             if (rescuer == null || rescuer == self) return;
             if (Vector3.Distance(rescuer.transform.position, transform.position) > reviveRange) return;
@@ -99,10 +132,28 @@ namespace FearMe.Player
             ApplyRevive();
         }
 
+        // The stalker grabbing you, the cage taking you, or being let go.
+        public void SetCaptivity(Captivity value, ICaptiveAnchor anchor)
+        {
+            if (IsDead) return;
+
+            int anchorId = anchor != null ? anchor.AnchorId : 0;
+            if (CoopHooks.CaptivityRequested != null && CoopHooks.CaptivityRequested(this, (int)value, anchorId)) return;
+
+            ApplyCaptivity(value, anchor);
+        }
+
+        public void ApplyCaptivity(Captivity value, ICaptiveAnchor anchor)
+        {
+            Captivity = IsDead ? Captivity.None : value;
+            Anchor = Captivity == Captivity.None ? null : anchor;
+        }
+
         public void ApplyRevive()
         {
             if (IsDead) return;
 
+            ApplyCaptivity(Captivity.None, null);
             IsDown = false;
             reviveProgress = 0f;
             self.SetIncapacitated(false);
@@ -128,6 +179,8 @@ namespace FearMe.Player
         {
             IsDead = true;
             bleedOutRemaining = 0f;
+            Captivity = Captivity.None;
+            Anchor = null;
 
             // Bleeding out is the other way a run can end: if nobody is left
             // upright, finish it here rather than waiting for a catch.

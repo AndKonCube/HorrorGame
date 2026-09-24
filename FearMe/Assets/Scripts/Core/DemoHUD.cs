@@ -72,10 +72,27 @@ namespace FearMe.Core
             PlayerVitals mine = local.GetComponent<PlayerVitals>();
             if (mine != null && mine.IsDown && !mine.IsDead)
             {
+                int left = Mathf.CeilToInt(mine.BleedOutRemaining);
+                string headline = mine.Captivity switch
+                {
+                    Captivity.Dragged => $"IT HAS YOU - {left}s",
+                    Captivity.Caged => $"CAGED - {left}s",
+                    _ => $"DOWN - {left}s"
+                };
+                string help = mine.Captivity switch
+                {
+                    Captivity.Dragged => "your partner has to stop it",
+                    Captivity.Caged => "your partner has to break the lock",
+                    _ => "your partner has to reach you"
+                };
+
                 GUIStyle downed = new GUIStyle(centerStyle) { fontSize = 30 };
                 downed.normal.textColor = new Color(0.75f, 0.1f, 0.1f);
-                GUI.Label(new Rect(0f, Screen.height * 0.62f, Screen.width, 40f),
-                    $"DOWN - {Mathf.CeilToInt(mine.BleedOutRemaining)}s", downed);
+                GUI.Label(new Rect(0f, Screen.height * 0.62f, Screen.width, 40f), headline, downed);
+
+                GUIStyle sub = new GUIStyle(centerStyle) { fontSize = 18 };
+                sub.normal.textColor = new Color(0.6f, 0.58f, 0.55f);
+                GUI.Label(new Rect(0f, Screen.height * 0.62f + 40f, Screen.width, 30f), help, sub);
                 return;
             }
 
@@ -86,10 +103,28 @@ namespace FearMe.Core
                 PlayerVitals vitals = other.GetComponent<PlayerVitals>();
                 if (vitals == null || !vitals.IsDown || vitals.IsDead) continue;
 
-                GUI.Label(new Rect(24f, 76f, 460f, 30f),
-                    $"Teammate down - {Mathf.CeilToInt(vitals.BleedOutRemaining)}s", textStyle);
+                int left = Mathf.CeilToInt(vitals.BleedOutRemaining);
+                string line = vitals.Captivity switch
+                {
+                    Captivity.Dragged => $"Your partner is being dragged away - stop it - {left}s",
+                    Captivity.Caged => $"Your partner is caged - break the lock - {left}s",
+                    _ => $"Your partner is down - {left}s"
+                };
+
+                GUI.Label(new Rect(24f, 76f, 700f, 30f), line, textStyle);
                 return;
             }
+        }
+
+        private void DrawHeld()
+        {
+            PlayerController local = PlayerRegistry.Local;
+            PlayerHands hands = local != null ? local.GetComponent<PlayerHands>() : null;
+            if (hands == null || hands.Held == null) return;
+
+            GUIStyle held = new GUIStyle(textStyle) { alignment = TextAnchor.LowerRight };
+            GUI.Label(new Rect(0f, Screen.height - 50f, Screen.width - 24f, 30f),
+                hands.Held.DisplayName.ToUpperInvariant() + "  ·  click to use  ·  G to drop", held);
         }
 
         // Only when the microphone is on and picking you up: a warning that
@@ -126,6 +161,7 @@ namespace FearMe.Core
             }
 
             GUI.Label(new Rect(24f, 48f, 460f, 30f), "F flashlight - C crouch - Shift run", textStyle);
+            DrawHeld();
 
             DrawVitals();
             DrawVoice();

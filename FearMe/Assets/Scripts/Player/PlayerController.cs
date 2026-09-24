@@ -72,6 +72,10 @@ namespace FearMe.Player
 
         public bool IsCrouching => isCrouching;
         public bool IsSprinting => isSprinting;
+
+        // Something heavy in your arms: slower, and no running.
+        public float SpeedMultiplier { get; set; } = 1f;
+        public bool CanSprint { get; set; } = true;
         public bool IsIncapacitated => incapacitated;
 
         // Shut inside a closet: out of sight until you step back out.
@@ -192,9 +196,10 @@ namespace FearMe.Player
         private void HandleMove()
         {
             Vector2 moveInput = moveAction.ReadValue<Vector2>();
-            isSprinting = sprintAction.IsPressed() && !isCrouching && moveInput.y > 0.1f;
+            isSprinting = CanSprint && sprintAction.IsPressed() && !isCrouching && moveInput.y > 0.1f;
 
             float speed = isCrouching ? crouchSpeed : (isSprinting ? sprintSpeed : walkSpeed);
+            speed *= SpeedMultiplier;
             Vector3 move = transform.right * moveInput.x + transform.forward * moveInput.y;
             controller.Move(move.normalized * speed * Time.deltaTime);
 
@@ -245,6 +250,13 @@ namespace FearMe.Player
         public void ExitConfinement(Vector3 position)
         {
             confined = false;
+            Teleport(position);
+        }
+
+        // Held in place by something else - a grip, a cage - while still free
+        // to look around at it.
+        public void Pin(Vector3 position)
+        {
             Teleport(position);
         }
 

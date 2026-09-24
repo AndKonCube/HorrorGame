@@ -35,6 +35,10 @@ namespace FearMe.Net.Online
         private readonly NetworkVariable<bool> dead = new NetworkVariable<bool>();
         private readonly NetworkVariable<float> bleedOut = new NetworkVariable<float>();
 
+        // Dragged or caged, and by what (a PropSync id both machines share).
+        private readonly NetworkVariable<int> captivity = new NetworkVariable<int>();
+        private readonly NetworkVariable<int> anchorId = new NetworkVariable<int>();
+
         private readonly NetworkVariable<bool> torchOn = new NetworkVariable<bool>(false,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<float> noise = new NetworkVariable<float>(0f,
@@ -78,8 +82,11 @@ namespace FearMe.Net.Online
             dead.OnValueChanged += OnVitalsChanged;
             bleedOut.OnValueChanged += OnBleedOutChanged;
             torchOn.OnValueChanged += OnTorchChanged;
+            captivity.OnValueChanged += OnCaptivityChanged;
+            anchorId.OnValueChanged += OnCaptivityChanged;
 
             ApplyVitals();
+            ApplyCaptivity();
             ApplyTorch();
         }
 
@@ -91,6 +98,8 @@ namespace FearMe.Net.Online
             dead.OnValueChanged -= OnVitalsChanged;
             bleedOut.OnValueChanged -= OnBleedOutChanged;
             torchOn.OnValueChanged -= OnTorchChanged;
+            captivity.OnValueChanged -= OnCaptivityChanged;
+            anchorId.OnValueChanged -= OnCaptivityChanged;
 
             // The session is over; the scene player can keep its own clock.
             if (localVitals != null) localVitals.OwnsTimer = true;
@@ -178,7 +187,11 @@ namespace FearMe.Net.Online
             float shown = Mathf.Max(0f, Mathf.Ceil(serverBleedOut));
             if (!Mathf.Approximately(bleedOut.Value, shown)) bleedOut.Value = shown;
 
-            if (serverBleedOut <= 0f) dead.Value = true;
+            if (serverBleedOut <= 0f)
+            {
+                captivity.Value = (int)Captivity.None;
+                dead.Value = true;
+            }
         }
 
         // --- Server authority ------------------------------------------------
@@ -210,7 +223,26 @@ namespace FearMe.Net.Online
             float range = (avatarVitals != null ? avatarVitals.ReviveRange : 2.5f) + reviveRangeSlack;
             if (Vector3.Distance(rescuer.transform.position, transform.position) > range) return;
 
+            captivity.Value = (int)Captivity.None;
             down.Value = false;
+        }
+
+        public void ServerSetCaptivity(int hold, int anchor)
+        {
+            if (!IsServer || dead.Value) return;
+
+            // Anchor first, so the change that follows already has somewhere
+            // to put them.
+            anchorId.Value = hold == (int)Captivity.None ? 0 : anchor;
+            captivity.Value = hold;
+        }
+
+        // A guest can only ever let someone go - breaking a cage lock. Being
+        // grabbed or caged comes from the stalker, which lives on the host.
+        [Rpc(SendTo.Server, RequireOwnership = false)]
+        private void RequestReleaseRpc()
+        {
+            ServerSetCaptivity((int)Captivity.None, 0);
         }
 
         // --- Hooks, installed by NetworkRunState --------------------------------
@@ -222,6 +254,16 @@ namespace FearMe.Net.Online
 
             if (player.IsServer) player.ServerGoDown();
             else player.RequestDownRpc();
+            return true;
+        }
+
+        internal static bool HandleCaptivityRequest(PlayerVitals vitals, int hold, int anchor)
+        {
+            NetworkPlayer player = For(vitals);
+            if (player == null) return false;
+
+            if (player.IsServer) player.ServerSetCaptivity(hold, anchor);
+            else if (hold == (int)Captivity.None) player.RequestReleaseRpc();
             return true;
         }
 
@@ -271,6 +313,17 @@ namespace FearMe.Net.Online
 
             if (localVitals != null)
                 localVitals.ApplyNetworkVitals(down.Value, dead.Value, remaining);
+        }
+
+        private void OnCaptivityChanged(int previous, int current) => ApplyCaptivity();
+
+        private void ApplyCaptivity()
+        {
+            Captivity hold = (Captivity)captivity.Value;
+            ICaptiveAnchor anchor = hold == Captivity.None ? null : PropSync.Find<ICaptiveAnchor>(anchorId.Value);
+
+            if (avatarVitals != null && avatarVitals.enabled) avatarVitals.ApplyCaptivity(hold, anchor);
+            if (localVitals != null) localVitals.ApplyCaptivity(hold, anchor);
         }
 
         private void OnTorchChanged(bool previous, bool current) => ApplyTorch();

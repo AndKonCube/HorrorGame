@@ -10,10 +10,16 @@ namespace FearMe.AI
     // Core scare mechanic: a stalking enemy that patrols, investigates noise,
     // chases on sight, and searches around the last known position before
     // giving up and returning to its patrol.
+    //
+    // With a partner still standing, catching someone does not end anything:
+    // it drags them off to the nearest cage and then patrols past it, so the
+    // rescue means walking back into its territory.
     [RequireComponent(typeof(NavMeshAgent))]
-    public class EnemyStalkerAI : MonoBehaviour
+    public class EnemyStalkerAI : MonoBehaviour, ICaptiveAnchor
     {
-        private enum State { Patrol, Investigate, Chase, Search }
+        private enum State { Patrol, Investigate, Chase, Search, Drag, Stunned }
+
+        private enum Remote { Stun = 1 }
 
         [Header("References")]
         [Tooltip("Optional fallback; players normally register themselves.")]
@@ -40,6 +46,18 @@ namespace FearMe.AI
         [Tooltip("Give up on a waypoint after this long and move to the next.")]
         [SerializeField] private float waypointTimeout = 12f;
 
+        [Header("Dragging")]
+        [Tooltip("Where a caught player is held while it drags them. " +
+            "Made just behind it, facing back, if left empty - so they watch it pull.")]
+        [SerializeField] private Transform grip;
+        [SerializeField] private float dragSpeed = 1.3f;
+        [Tooltip("A long drag gives up and cages them anyway after this long.")]
+        [SerializeField] private float dragTimeout = 45f;
+
+        [Header("Stun")]
+        [SerializeField] private AudioSource voice;
+        [SerializeField] private AudioClip stunClip;
+
         [Header("Hearing")]
         [Tooltip("Sounds from further above or below than this are on another " +
             "storey - heard through a floor, they would drag it the wrong way.")]
@@ -62,10 +80,38 @@ namespace FearMe.AI
         private Vector3 noiseAt;
         private float noiseStrength;
 
+        private PlayerVitals captive;
+        private CageSpot dragTo;
+        private float stunTimer;
+        private int anchorId;
+
+        public int AnchorId => anchorId;
+        public Transform HoldPoint => grip;
+        public bool IsDragging => state == State.Drag;
+        public bool IsStunned => state == State.Stunned;
+
         private void Awake()
         {
             agent = GetComponent<NavMeshAgent>();
             if (eyes == null) eyes = transform;
+
+            if (grip == null)
+            {
+                grip = new GameObject("Grip").transform;
+                grip.SetParent(transform, false);
+                grip.localPosition = new Vector3(0f, 0f, -0.9f);
+                grip.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            }
+
+            // For its whole life, not just while enabled: on a guest's machine
+            // this brain is switched off, but a dragged player still needs to
+            // find the grip, and a stun still needs to reach the host.
+            anchorId = PropSync.Register(this, ApplyRemote);
+        }
+
+        private void OnDestroy()
+        {
+            PropSync.Unregister(anchorId);
         }
 
         private void Start()
@@ -116,6 +162,17 @@ namespace FearMe.AI
                     Debug.LogWarning("[FearMe] '" + name + "' is not on a NavMesh, so it cannot move. " +
                         "Bake one with Tools > FearMe > Rebake NavMesh (current scene).", this);
                 }
+                return;
+            }
+
+            // Stunned or hauling someone away, it is not looking for anyone.
+            if (state == State.Stunned || state == State.Drag)
+            {
+                // Anything heard meanwhile is stale by the time it is free.
+                noisePending = false;
+
+                if (state == State.Stunned) TickStunned();
+                else TickDrag();
                 return;
             }
 
@@ -255,11 +312,13 @@ namespace FearMe.AI
         // A partial or invalid path never closes the remaining distance.
         // Without treating that as "done", one unreachable waypoint stalls
         // the patrol for the rest of the run.
-        private bool ReachedDestination()
+        private bool ReachedDestination() => ReachedDestination(waypointTimeout);
+
+        private bool ReachedDestination(float timeout)
         {
             if (agent.pathPending) return false;
             if (agent.pathStatus != NavMeshPathStatus.PathComplete) return true;
-            if (Time.time - destinationSetAt > waypointTimeout) return true;
+            if (Time.time - destinationSetAt > timeout) return true;
 
             return agent.remainingDistance <= Mathf.Max(0.5f, agent.stoppingDistance);
         }
@@ -352,13 +411,19 @@ namespace FearMe.AI
 
             if (Vector3.Distance(transform.position, victim.transform.position) > catchDistance) return;
 
-            // Downs this player and keeps hunting. Only when nobody is left
-            // standing does the run actually end.
+            // Downs this player. If their partner is still up, it drags them
+            // off to a cage; only when nobody is left standing does the run
+            // actually end.
             PlayerVitals vitals = victim.GetComponent<PlayerVitals>();
             if (vitals != null && !vitals.IsDown)
             {
                 vitals.GoDown();
-                EnterSearch();
+
+                if (PlayerRegistry.AnyAlive())
+                {
+                    BeginDrag(vitals);
+                    return;
+                }
             }
 
             if (!PlayerRegistry.AnyAlive())
@@ -367,6 +432,101 @@ namespace FearMe.AI
                 agent.isStopped = true;
                 enabled = false;
             }
+        }
+
+        // --- Buddy breakout ------------------------------------------------------
+
+        private void BeginDrag(PlayerVitals vitals)
+        {
+            CageSpot cage = CageSpot.NearestFree(transform.position);
+
+            // No cages in this level: leave them where they fell, revivable.
+            if (cage == null)
+            {
+                EnterSearch();
+                return;
+            }
+
+            captive = vitals;
+            dragTo = cage;
+
+            state = State.Drag;
+            agent.speed = dragSpeed;
+            agent.isStopped = false;
+            SetDestinationOnMesh(cage.DropOff);
+
+            captive.SetCaptivity(Captivity.Dragged, this);
+        }
+
+        private void TickDrag()
+        {
+            // Stunned out of its grip, bled out, or otherwise let go.
+            if (captive == null || captive.IsDead || !captive.IsDown || captive.Captivity != Captivity.Dragged)
+            {
+                captive = null;
+                dragTo = null;
+                EnterSearch();
+                return;
+            }
+
+            if (!ReachedDestination(dragTimeout)) return;
+
+            PlayerVitals caged = captive;
+            CageSpot cage = dragTo;
+            captive = null;
+            dragTo = null;
+
+            caged.SetCaptivity(Captivity.Caged, cage);
+
+            // It stays in the area. Coming back for them is the risk.
+            lastKnownPosition = cage.transform.position;
+            ResumePatrolNear(cage.transform.position);
+        }
+
+        // A brick to the head or a stun gun: it lets go of whoever it is
+        // dragging and stands dazed for a moment. Callable from any machine.
+        public void RequestStun(float seconds)
+        {
+            if (enabled) Stun(seconds);
+            else PropSync.Publish(anchorId, (int)Remote.Stun, new Vector3(seconds, 0f, 0f));
+        }
+
+        private void ApplyRemote(int stateCode, Vector3 value)
+        {
+            // Only the copy that is actually thinking acts on it.
+            if (stateCode == (int)Remote.Stun && enabled) Stun(value.x);
+        }
+
+        private void Stun(float seconds)
+        {
+            // Dropped where it stands: still down, but reachable for a revive.
+            if (captive != null)
+            {
+                captive.SetCaptivity(Captivity.None, null);
+                captive = null;
+                dragTo = null;
+            }
+
+            state = State.Stunned;
+            stunTimer = seconds;
+            lastKnownPosition = transform.position;
+
+            if (agent.isOnNavMesh)
+            {
+                agent.isStopped = true;
+                agent.ResetPath();
+            }
+
+            if (voice != null && stunClip != null) voice.PlayOneShot(stunClip);
+        }
+
+        private void TickStunned()
+        {
+            stunTimer -= Time.deltaTime;
+            if (stunTimer > 0f) return;
+
+            agent.isStopped = false;
+            EnterSearch();
         }
 
         private void OnDrawGizmosSelected()

@@ -77,6 +77,7 @@ namespace FearMe.Net.Online
 
             CoopHooks.DownRequested = NetworkPlayer.HandleDownRequest;
             CoopHooks.ReviveRequested = NetworkPlayer.HandleReviveRequest;
+            CoopHooks.CaptivityRequested = NetworkPlayer.HandleCaptivityRequest;
 
             // The stalker only runs here on the host, so a guest's noise is
             // sent over; the host's own noise needs no help.
@@ -171,7 +172,7 @@ namespace FearMe.Net.Online
         // Last writer wins: two friends, one door, and whoever touched it
         // most recently is right.
         [Rpc(SendTo.NotMe, RequireOwnership = false)]
-        private void PropRpc(int id, int state, float value)
+        private void PropRpc(int id, int state, Vector3 value)
         {
             PropSync.Receive(id, state, value);
         }

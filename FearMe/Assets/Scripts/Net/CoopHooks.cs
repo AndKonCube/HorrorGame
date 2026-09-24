@@ -38,8 +38,11 @@ namespace FearMe.Net
         // The stalker lives on the host; a guest's noise is sent there.
         public static Func<UnityEngine.Vector3, float, bool> NoiseMade;
 
+        // Dragged off or caged (vitals, Captivity, anchor PropSync id). Server-owned.
+        public static Func<PlayerVitals, int, int, bool> CaptivityRequested;
+
         // A door, lever or carried thing changed here; tell the other player.
-        public static Action<int, int, float> PropChanged;
+        public static Action<int, int, UnityEngine.Vector3> PropChanged;
 
         public static void Clear()
         {
@@ -53,6 +56,7 @@ namespace FearMe.Net
             RestartRequested = null;
             NoiseMade = null;
             PropChanged = null;
+            CaptivityRequested = null;
         }
     }
 }

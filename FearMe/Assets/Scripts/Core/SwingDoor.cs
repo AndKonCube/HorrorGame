@@ -114,7 +114,7 @@ namespace FearMe.Core
                 PlayClip(creakClip, 0.5f);
             }
 
-            PropSync.Publish(propId, (int)Remote.Ease, angle);
+            PropSync.Publish(propId, (int)Remote.Ease, new Vector3(angle, 0f, 0f));
         }
 
         private void Throw(float to, bool publish)
@@ -123,7 +123,7 @@ namespace FearMe.Core
             slamming = true;
             slamIsRemote = false;
 
-            if (publish) PropSync.Publish(propId, (int)Remote.Slam, to);
+            if (publish) PropSync.Publish(propId, (int)Remote.Slam, new Vector3(to, 0f, 0f));
         }
 
         private void TickSlam()
@@ -141,8 +141,10 @@ namespace FearMe.Core
 
         // The other player moved it. Their machine already made the noise,
         // so this only moves the door and plays the sound.
-        private void ApplyRemote(int state, float value)
+        private void ApplyRemote(int state, Vector3 payload)
         {
+            float value = payload.x;
+
             if (state == (int)Remote.Slam)
             {
                 target = value;

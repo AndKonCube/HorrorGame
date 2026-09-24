@@ -1,4 +1,6 @@
+using FearMe.Items;
 using FearMe.Net;
+using FearMe.Player;
 using UnityEngine;
 
 namespace FearMe.Core
@@ -7,13 +9,49 @@ namespace FearMe.Core
     {
         [SerializeField] private GameOverController gameFlow;
 
-        private bool Unlocked =>
+        [Header("Heavy item (optional)")]
+        [Tooltip("Something that has to be carried here before the way out opens.")]
+        [SerializeField] private HeavyItem requiredItem;
+        [Tooltip("Where it is set down. Defaults to this door.")]
+        [SerializeField] private Transform deliverySlot;
+
+        private bool KeysDone =>
             ObjectiveTracker.Instance != null && ObjectiveTracker.Instance.AllKeysCollected;
 
-        public override string Prompt => Unlocked ? "Escape" : "Locked - find every key";
+        private bool ItemDone => requiredItem == null || requiredItem.IsDelivered;
+
+        private bool Unlocked => KeysDone && ItemDone;
+
+        private bool CarryingRequired
+        {
+            get
+            {
+                PlayerController local = PlayerRegistry.Local;
+                PlayerHands hands = local != null ? local.GetComponent<PlayerHands>() : null;
+                return requiredItem != null && hands != null && hands.Held == requiredItem;
+            }
+        }
+
+        public override string Prompt
+        {
+            get
+            {
+                if (!KeysDone) return "Locked - find every key";
+                if (ItemDone) return "Escape";
+                return CarryingRequired
+                    ? "Set down the " + requiredItem.DisplayName
+                    : "It needs the " + requiredItem.DisplayName;
+            }
+        }
 
         public override void Interact()
         {
+            if (KeysDone && !ItemDone && CarryingRequired)
+            {
+                requiredItem.Deliver(deliverySlot != null ? deliverySlot : transform);
+                return;
+            }
+
             if (!Unlocked) return;
 
             // One player reaching the door gets everyone out.
