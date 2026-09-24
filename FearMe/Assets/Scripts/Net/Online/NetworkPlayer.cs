@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using FearMe.Core;
 using FearMe.Player;
+using Unity.Collections;
 using Unity.Netcode;
+using Unity.Services.Authentication;
 using UnityEngine;
 
 namespace FearMe.Net.Online
@@ -53,6 +55,11 @@ namespace FearMe.Net.Online
         private readonly NetworkVariable<bool> peeking = new NetworkVariable<bool>(false,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+        // The owner's sign-in id - what voice chat knows a speaker by - so a
+        // voice can be put in the right mouth.
+        private readonly NetworkVariable<FixedString64Bytes> authId = new NetworkVariable<FixedString64Bytes>(default,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
         private PlayerController avatar;
         private PlayerVitals avatarVitals;
         private CharacterController avatarCollider;
@@ -81,6 +88,9 @@ namespace FearMe.Net.Online
             all.Add(this);
 
             if (avatarVitals != null) avatarVitals.OwnsTimer = false;
+
+            if (IsOwner && AuthenticationService.Instance.IsSignedIn)
+                authId.Value = new FixedString64Bytes(AuthenticationService.Instance.PlayerId);
 
             if (IsOwner) BindToLocalPlayer();
             else ShowAsTeammate();
@@ -296,6 +306,19 @@ namespace FearMe.Net.Online
             foreach (NetworkPlayer player in all)
             {
                 if (player.avatarVitals == vitals || player.localVitals == vitals) return player;
+            }
+            return null;
+        }
+
+        // The visible body of whoever signed in as this id, on this machine.
+        public static Transform BodyOf(string playerId)
+        {
+            if (string.IsNullOrEmpty(playerId)) return null;
+
+            foreach (NetworkPlayer player in all)
+            {
+                if (player != null && !player.IsOwner && player.authId.Value.ToString() == playerId)
+                    return player.transform;
             }
             return null;
         }

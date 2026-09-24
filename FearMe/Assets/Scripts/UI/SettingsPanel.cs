@@ -20,6 +20,12 @@ namespace FearMe.UI
         [SerializeField] private Toggle micToggle;
         [SerializeField] private Slider micSensitivitySlider;
 
+        [Header("Voice chat")]
+        [Tooltip("Optional. Proximity voice with your partner.")]
+        [SerializeField] private Toggle voiceChatToggle;
+        [SerializeField] private Toggle pushToTalkToggle;
+        [SerializeField] private Slider voiceVolumeSlider;
+
         [Header("Value readouts")]
         [SerializeField] private Text masterValue;
         [SerializeField] private Text ambientValue;
@@ -40,6 +46,9 @@ namespace FearMe.UI
             if (invertToggle != null) invertToggle.isOn = settings.invertLook;
             if (micToggle != null) micToggle.isOn = settings.micAttractsMonster;
             if (micSensitivitySlider != null) micSensitivitySlider.value = settings.micSensitivity;
+            if (voiceChatToggle != null) voiceChatToggle.isOn = settings.voiceChatEnabled;
+            if (pushToTalkToggle != null) pushToTalkToggle.isOn = settings.pushToTalk;
+            if (voiceVolumeSlider != null) voiceVolumeSlider.value = settings.voiceVolume;
             binding = false;
 
             Listen(masterSlider, OnMasterChanged);
@@ -47,6 +56,9 @@ namespace FearMe.UI
             Listen(sfxSlider, OnSfxChanged);
             Listen(sensitivitySlider, OnSensitivityChanged);
             Listen(micSensitivitySlider, OnMicSensitivityChanged);
+            Listen(voiceVolumeSlider, OnVoiceVolumeChanged);
+            ListenToggle(voiceChatToggle, OnVoiceChatChanged);
+            ListenToggle(pushToTalkToggle, OnPushToTalkChanged);
 
             if (micToggle != null)
             {
@@ -71,6 +83,9 @@ namespace FearMe.UI
             Unlisten(sensitivitySlider, OnSensitivityChanged);
             if (invertToggle != null) invertToggle.onValueChanged.RemoveListener(OnInvertChanged);
             Unlisten(micSensitivitySlider, OnMicSensitivityChanged);
+            Unlisten(voiceVolumeSlider, OnVoiceVolumeChanged);
+            if (voiceChatToggle != null) voiceChatToggle.onValueChanged.RemoveListener(OnVoiceChatChanged);
+            if (pushToTalkToggle != null) pushToTalkToggle.onValueChanged.RemoveListener(OnPushToTalkChanged);
             if (micToggle != null) micToggle.onValueChanged.RemoveListener(OnMicChanged);
         }
 
@@ -122,6 +137,34 @@ namespace FearMe.UI
         {
             if (binding) return;
             GameSettingsService.Current.invertLook = value;
+            GameSettingsService.Apply();
+        }
+
+        private static void ListenToggle(Toggle toggle, UnityEngine.Events.UnityAction<bool> handler)
+        {
+            if (toggle == null) return;
+            toggle.onValueChanged.RemoveListener(handler);
+            toggle.onValueChanged.AddListener(handler);
+        }
+
+        private void OnVoiceChatChanged(bool value)
+        {
+            if (binding) return;
+            GameSettingsService.Current.voiceChatEnabled = value;
+            GameSettingsService.Apply();
+        }
+
+        private void OnPushToTalkChanged(bool value)
+        {
+            if (binding) return;
+            GameSettingsService.Current.pushToTalk = value;
+            GameSettingsService.Apply();
+        }
+
+        private void OnVoiceVolumeChanged(float value)
+        {
+            if (binding) return;
+            GameSettingsService.Current.voiceVolume = value;
             GameSettingsService.Apply();
         }
 

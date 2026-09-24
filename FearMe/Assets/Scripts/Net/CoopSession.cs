@@ -38,6 +38,10 @@ namespace FearMe.Net
         public static SessionState State { get; private set; } = SessionState.Offline;
         public static string Status { get; private set; } = string.Empty;
         public static string JoinCode { get; private set; } = string.Empty;
+
+        // The service's id for the session - the same on both machines, so it
+        // doubles as the name of the session's voice channel.
+        public static string SessionId { get; private set; } = string.Empty;
         public static IReadOnlyList<SessionMember> Members => members;
 
         public static CoopBackend Backend
@@ -123,6 +127,7 @@ namespace FearMe.Net
             State = SessionState.Offline;
             Status = string.Empty;
             JoinCode = string.Empty;
+            SessionId = string.Empty;
             Raise();
         }
 
@@ -134,6 +139,7 @@ namespace FearMe.Net
             {
                 members.Clear();
                 JoinCode = string.Empty;
+                SessionId = string.Empty;
             }
             Raise();
         }
@@ -141,6 +147,12 @@ namespace FearMe.Net
         internal static void ReportJoinCode(string joinCode)
         {
             JoinCode = joinCode ?? string.Empty;
+            Raise();
+        }
+
+        internal static void ReportSessionId(string sessionId)
+        {
+            SessionId = sessionId ?? string.Empty;
             Raise();
         }
 

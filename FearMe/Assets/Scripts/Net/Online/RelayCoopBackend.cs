@@ -132,6 +132,7 @@ namespace FearMe.Net.Online
             CoopHooks.Online = true;
 
             ReportJoinCode(session.Code);
+            ReportSessionId(session.Id);
             Report(SessionState.InLobby, string.Empty);
 
             await PublishSelf(ready);

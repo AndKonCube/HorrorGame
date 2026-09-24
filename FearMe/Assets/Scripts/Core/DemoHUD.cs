@@ -221,6 +221,25 @@ namespace FearMe.Core
                 hands.Held.DisplayName.ToUpperInvariant() + "  ·  click to use  ·  G to drop", held);
         }
 
+        // Proximity chat, when connected: how you are transmitting, and who is
+        // talking - handy when your partner is out of sight but in earshot.
+        private void DrawVoiceChat()
+        {
+            if (!FearMe.Net.VoiceStatus.Active) return;
+
+            string line = FearMe.Net.VoiceStatus.PushToTalk
+                ? (FearMe.Net.VoiceStatus.Transmitting ? "VOICE  -  on air" : "VOICE  -  hold V to talk")
+                : "VOICE  -  open mic";
+            if (FearMe.Net.VoiceStatus.LocalSpeaking) line += "  -  you";
+            if (FearMe.Net.VoiceStatus.PartnerSpeaking) line += "  -  partner";
+
+            GUIStyle voice = new GUIStyle(textStyle) { fontSize = 15 };
+            voice.normal.textColor = FearMe.Net.VoiceStatus.LocalSpeaking
+                ? new Color(0.75f, 0.85f, 0.65f)
+                : new Color(0.55f, 0.54f, 0.52f);
+            GUI.Label(new Rect(24f, Screen.height - 46f, 600f, 26f), line, voice);
+        }
+
         // Only when the microphone is on and picking you up: a warning that
         // arrives before the stalker does.
         private void DrawVoice()
@@ -263,6 +282,7 @@ namespace FearMe.Core
 
             DrawVitals();
             DrawVoice();
+            DrawVoiceChat();
             DrawHiding();
 
             // Crosshair

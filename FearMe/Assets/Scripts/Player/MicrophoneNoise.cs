@@ -39,6 +39,13 @@ namespace FearMe.Player
         // player knows they are being heard before the stalker does.
         public static float Level { get; private set; }
 
+        // Set by voice chat while it is connected: how loud you are as it hears
+        // you (0 when push-to-talk is up). It replaces this component's own
+        // microphone, so the mic is never opened twice - and it counts whether
+        // or not the Settings toggle is on, because talking to your partner is
+        // exactly the thing the demon should be able to hear.
+        public static System.Func<float> ExternalLevel;
+
         private void OnEnable()
         {
             GameSettingsService.Changed += Apply;
@@ -53,7 +60,7 @@ namespace FearMe.Player
 
         private void Apply()
         {
-            bool wanted = GameSettingsService.Current.micAttractsMonster;
+            bool wanted = GameSettingsService.Current.micAttractsMonster && ExternalLevel == null;
 
             if (wanted && !recording) StartCoroutine(StartListening());
             else if (!wanted && recording) StopListening();
@@ -92,6 +99,14 @@ namespace FearMe.Player
 
         private void Update()
         {
+            if (ExternalLevel != null)
+            {
+                if (recording) StopListening();
+                Level = Mathf.Clamp01(ExternalLevel());
+                Report();
+                return;
+            }
+
             if (!recording || clip == null)
             {
                 Level = 0f;
@@ -110,7 +125,11 @@ namespace FearMe.Player
 
             float quiet = Mathf.Lerp(quietDbLow, quietDbHigh, GameSettingsService.Current.micSensitivity);
             Level = Mathf.InverseLerp(quiet, shoutDb, db);
+            Report();
+        }
 
+        private void Report()
+        {
             if (Level <= 0f || Time.time < nextReport) return;
 
             nextReport = Time.time + reportInterval;

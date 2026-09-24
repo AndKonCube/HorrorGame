@@ -202,7 +202,8 @@ namespace FearMe.EditorTools
 
             back = CreateButton(panel, "BackButton", "BACK", font, new Vector2(0f, -225f));
 
-            SettingsVoiceRows.Add(panel, font, out Toggle mic, out Slider micSensitivity);
+            SettingsVoiceRows.AddMicRows(panel, font, out Toggle mic, out Slider micSensitivity);
+            SettingsVoiceRows.AddChatRows(panel, font, out Toggle voiceChat, out Toggle pushToTalk, out Slider voiceVolume);
 
             panelScript = panel.gameObject.AddComponent<SettingsPanel>();
             SetObjectField(panelScript, "masterSlider", master);
@@ -212,6 +213,9 @@ namespace FearMe.EditorTools
             SetObjectField(panelScript, "invertToggle", invert);
             SetObjectField(panelScript, "micToggle", mic);
             SetObjectField(panelScript, "micSensitivitySlider", micSensitivity);
+            SetObjectField(panelScript, "voiceChatToggle", voiceChat);
+            SetObjectField(panelScript, "pushToTalkToggle", pushToTalk);
+            SetObjectField(panelScript, "voiceVolumeSlider", voiceVolume);
             SetObjectField(panelScript, "masterValue", masterValue);
             SetObjectField(panelScript, "ambientValue", ambientValue);
             SetObjectField(panelScript, "sfxValue", sfxValue);

@@ -21,6 +21,11 @@ namespace FearMe.Settings
         public bool micAttractsMonster;
         public float micSensitivity = 0.5f;
 
+        // Proximity voice chat with your partner, once it is installed.
+        public bool voiceChatEnabled = true;
+        public bool pushToTalk;
+        public float voiceVolume = 1f;
+
         // The file can be hand-edited or written by an older build, so never
         // trust what comes back off disk.
         public void Clamp()
@@ -30,6 +35,7 @@ namespace FearMe.Settings
             sfxVolume = Mathf.Clamp01(sfxVolume);
             mouseSensitivity = Mathf.Clamp(mouseSensitivity, 0.02f, 0.6f);
             micSensitivity = Mathf.Clamp01(micSensitivity);
+            voiceVolume = Mathf.Clamp01(voiceVolume);
 
             playerName = string.IsNullOrWhiteSpace(playerName) ? "PLAYER" : playerName.Trim();
             if (playerName.Length > 16) playerName = playerName.Substring(0, 16);

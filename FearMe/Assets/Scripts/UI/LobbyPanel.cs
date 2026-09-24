@@ -73,11 +73,20 @@ namespace FearMe.UI
             if (joinCodeField != null) joinCodeField.onValueChanged.RemoveListener(OnJoinCodeChanged);
         }
 
+        private int voiceVersion = -1;
+
         private void Update()
         {
             // Relay and Lobby work is asynchronous, so the session gets a pump
             // for as long as this screen is the thing on top.
             CoopSession.Tick();
+
+            // Voice connects on its own schedule; redraw when it changes.
+            if (voiceVersion != VoiceStatus.Version)
+            {
+                voiceVersion = VoiceStatus.Version;
+                Refresh();
+            }
         }
 
         public void OnHost()
@@ -220,6 +229,19 @@ namespace FearMe.UI
         {
             if (statusLabel == null) return;
 
+            RefreshSessionStatus(inLobby, host);
+
+            // Voice underneath whatever the session says.
+            string voice = !inLobby ? string.Empty
+                : !string.IsNullOrEmpty(VoiceStatus.Problem) ? VoiceStatus.Problem
+                : VoiceStatus.Active ? (VoiceStatus.PushToTalk ? "Voice connected - hold V to talk." : "Voice connected - open mic.")
+                : string.Empty;
+
+            if (!string.IsNullOrEmpty(voice)) statusLabel.text += "\n" + voice;
+        }
+
+        private void RefreshSessionStatus(bool inLobby, bool host)
+        {
             // A real error from the session beats anything generic.
             if (!string.IsNullOrEmpty(CoopSession.Status))
             {

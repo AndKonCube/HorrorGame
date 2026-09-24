@@ -28,6 +28,9 @@ namespace FearMe.Net
         protected static void ReportJoinCode(string joinCode) =>
             CoopSession.ReportJoinCode(joinCode);
 
+        protected static void ReportSessionId(string sessionId) =>
+            CoopSession.ReportSessionId(sessionId);
+
         protected static void ReportMembers(IList<SessionMember> members) =>
             CoopSession.ReportMembers(members);
     }
