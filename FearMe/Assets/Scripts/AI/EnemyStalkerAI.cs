@@ -17,7 +17,7 @@ namespace FearMe.AI
     [RequireComponent(typeof(NavMeshAgent))]
     public class EnemyStalkerAI : MonoBehaviour, ICaptiveAnchor
     {
-        private enum State { Patrol, Investigate, Chase, Search, Drag, Stunned }
+        private enum State { Patrol, Investigate, Chase, Search, Drag, Stunned, Banished }
 
         private enum Remote { Stun = 1 }
 
@@ -58,6 +58,21 @@ namespace FearMe.AI
         [SerializeField] private AudioSource voice;
         [SerializeField] private AudioClip stunClip;
 
+        [Header("Escalation - every return from banishment")]
+        [Tooltip("Speed gained per return, as a fraction of its starting speeds.")]
+        [SerializeField] private float speedGainPerReturn = 0.15f;
+        [SerializeField] private float maxSpeedMultiplier = 2f;
+        [Tooltip("How much further it sees and hears, and how much longer it keeps hunting, per return.")]
+        [SerializeField] private float senseGainPerReturn = 0.12f;
+
+        [Header("Hidden players")]
+        [Tooltip("Within this, it can hear someone in a closet or under a bed breathing.")]
+        [SerializeField] private float sniffRange = 3.5f;
+        [Tooltip("Seconds of hearing them breathe before it tears the hiding place open.")]
+        [SerializeField] private float sniffSeconds = 2.5f;
+        [Tooltip("Someone peeking out is spotted inside this range, if they are in its view.")]
+        [SerializeField] private float peekSpotRange = 7f;
+
         [Header("Hearing")]
         [Tooltip("Sounds from further above or below than this are on another " +
             "storey - heard through a floor, they would drag it the wrong way.")]
@@ -85,6 +100,18 @@ namespace FearMe.AI
         private float stunTimer;
         private int anchorId;
 
+        private readonly Dictionary<PlayerController, float> suspicion = new Dictionary<PlayerController, float>();
+        private float basePatrol, baseInvestigate, baseChase, baseDrag, baseView, baseGrace, baseSearch, baseWait;
+        private float hearingScale = 1f;
+        private float senseScale = 1f;
+        private Renderer[] bodyRenderers;
+        private Collider[] bodyColliders;
+
+        // How many times it has come back from banishment, stronger each time.
+        public int Level { get; private set; }
+        public bool IsBanished => state == State.Banished;
+        public float SniffRange => sniffRange;
+
         public int AnchorId => anchorId;
         public Transform HoldPoint => grip;
         public bool IsDragging => state == State.Drag;
@@ -94,6 +121,19 @@ namespace FearMe.AI
         {
             agent = GetComponent<NavMeshAgent>();
             if (eyes == null) eyes = transform;
+
+            // Escalation is always measured from where it started.
+            basePatrol = patrolSpeed;
+            baseInvestigate = investigateSpeed;
+            baseChase = chaseSpeed;
+            baseDrag = dragSpeed;
+            baseView = viewDistance;
+            baseGrace = loseSightGrace;
+            baseSearch = searchDuration;
+            baseWait = investigateWaitTime;
+
+            bodyRenderers = GetComponentsInChildren<Renderer>(true);
+            bodyColliders = GetComponentsInChildren<Collider>(true);
 
             if (grip == null)
             {
@@ -134,10 +174,12 @@ namespace FearMe.AI
         {
             if (!SameStorey(noise.position)) return;
 
+            // It hears further every time it comes back.
+            float reach = noise.radius * hearingScale;
             float distance = Vector3.Distance(transform.position, noise.position);
-            if (distance > noise.radius) return;
+            if (distance > reach) return;
 
-            float strength = 1f - distance / noise.radius;
+            float strength = 1f - distance / reach;
             if (noisePending && strength <= noiseStrength) return;
 
             noisePending = true;
@@ -166,6 +208,13 @@ namespace FearMe.AI
             }
 
             // Stunned or hauling someone away, it is not looking for anyone.
+            // Gone: nothing to see, hear or do until the director brings it back.
+            if (state == State.Banished)
+            {
+                noisePending = false;
+                return;
+            }
+
             if (state == State.Stunned || state == State.Drag)
             {
                 // Anything heard meanwhile is stale by the time it is free.
@@ -179,6 +228,9 @@ namespace FearMe.AI
             PlayerController seen = FindVisiblePlayer();
             PlayerController heard = seen == null ? FindAudiblePlayer() : seen;
             if (seen != null) quarry = seen;
+
+            // Nosing around a hiding place, it listens for breathing.
+            if (state != State.Chase && TickSniff()) return;
 
             // A sound is a place to go, not a person to chase: it never pulls
             // the stalker off someone it can actually see.
@@ -219,7 +271,21 @@ namespace FearMe.AI
 
             foreach (PlayerController candidate in Targets())
             {
-                if (candidate.IsHidden) continue;
+                if (candidate.IsHidden)
+                {
+                    // Peeking out: a face in the gap, close, and in its view.
+                    // The closet walls do not hide what is looking out of them.
+                    if (!candidate.IsPeeking) continue;
+
+                    Vector3 toPeeker = candidate.transform.position - eyes.position;
+                    float peekDistance = toPeeker.magnitude;
+                    if (peekDistance > peekSpotRange * senseScale || peekDistance >= bestDistance) continue;
+                    if (Vector3.Angle(eyes.forward, toPeeker) > viewAngle * 0.5f) continue;
+
+                    best = candidate;
+                    bestDistance = peekDistance;
+                    continue;
+                }
 
                 Vector3 toPlayer = candidate.transform.position - eyes.position;
                 float distance = toPlayer.magnitude;
@@ -243,7 +309,7 @@ namespace FearMe.AI
                 if (!SameStorey(candidate.transform.position)) continue;
 
                 float distance = Vector3.Distance(transform.position, candidate.transform.position);
-                if (distance <= candidate.CurrentNoiseRadius) return candidate;
+                if (distance <= candidate.CurrentNoiseRadius * hearingScale) return candidate;
             }
 
             return null;
@@ -292,8 +358,24 @@ namespace FearMe.AI
             // Reached from Start, before Update's off-mesh guard can run.
             if (!agent.isOnNavMesh) return;
 
-            SetDestinationOnMesh(patrolRoute.GetWaypoint(patrolIndex).position);
-            patrolIndex++;
+            // Only where the players can be: waypoints behind a locked zone
+            // gate are skipped until the team opens it.
+            for (int tries = 0; tries < patrolRoute.Count; tries++)
+            {
+                Transform waypoint = patrolRoute.GetWaypoint(patrolIndex);
+                patrolIndex++;
+
+                if (waypoint == null || !ZoneOpen(waypoint.position)) continue;
+
+                SetDestinationOnMesh(waypoint.position);
+                return;
+            }
+        }
+
+        private static bool ZoneOpen(Vector3 position)
+        {
+            SpawnDirector director = SpawnDirector.Instance;
+            return director == null || HospitalZone.ZoneOf(position) <= director.State.zonesUnlocked;
         }
 
         // Waypoints get hand-placed slightly off the floor, which yields a
@@ -409,8 +491,16 @@ namespace FearMe.AI
             PlayerController victim = PlayerRegistry.Nearest(transform.position) ?? quarry;
             if (victim == null) return;
 
-            if (Vector3.Distance(transform.position, victim.transform.position) > catchDistance) return;
+            // Someone caught peeking is inside a closet it cannot walk into;
+            // reaching the door is enough to drag them out.
+            float reach = victim.IsHidden ? sniffRange * 0.6f : catchDistance;
+            if (Vector3.Distance(transform.position, victim.transform.position) > reach) return;
 
+            Seize(victim);
+        }
+
+        private void Seize(PlayerController victim)
+        {
             // Downs this player. If their partner is still up, it drags them
             // off to a cage; only when nobody is left standing does the run
             // actually end.
@@ -432,6 +522,117 @@ namespace FearMe.AI
                 agent.isStopped = true;
                 enabled = false;
             }
+        }
+
+        // --- Hidden players ---------------------------------------------------
+
+        // Someone hidden close by and still breathing slowly gives themselves
+        // away. Holding their breath stops it building - for as long as they
+        // can. Returns true when it has just found someone.
+        private bool TickSniff()
+        {
+            float rate = Time.deltaTime / Mathf.Max(0.2f, sniffSeconds / senseScale);
+
+            foreach (PlayerController candidate in Targets())
+            {
+                if (!candidate.IsHidden)
+                {
+                    suspicion.Remove(candidate);
+                    continue;
+                }
+
+                bool close = SameStorey(candidate.transform.position) &&
+                    Vector3.Distance(transform.position, candidate.transform.position) <= sniffRange;
+
+                suspicion.TryGetValue(candidate, out float current);
+                current = close && !candidate.HoldingBreath
+                    ? current + rate
+                    : Mathf.MoveTowards(current, 0f, Time.deltaTime * 0.35f);
+
+                if (current >= 1f)
+                {
+                    suspicion.Remove(candidate);
+                    lastKnownPosition = candidate.transform.position;
+                    Seize(candidate);
+                    return true;
+                }
+
+                suspicion[candidate] = current;
+            }
+
+            return false;
+        }
+
+        // --- Banishment -------------------------------------------------------
+
+        // The rite tears it out of the world. Whoever it was dragging is let
+        // go where they lie, and it waits somewhere far off to come back.
+        public void Banish(Vector3 holdAt)
+        {
+            if (captive != null)
+            {
+                captive.SetCaptivity(Captivity.None, null);
+                captive = null;
+                dragTo = null;
+            }
+
+            state = State.Banished;
+            suspicion.Clear();
+            noisePending = false;
+
+            if (agent.isOnNavMesh)
+            {
+                agent.ResetPath();
+                agent.Warp(holdAt);
+                agent.isStopped = true;
+            }
+        }
+
+        // Back, from wherever is furthest from everyone - and faster, and
+        // sharper, than it was. The change never goes away.
+        public void ReturnFromBanishment(int level, Vector3 at)
+        {
+            ApplyEscalation(level);
+
+            if (agent.isOnNavMesh)
+            {
+                agent.Warp(at);
+                agent.isStopped = false;
+            }
+
+            lastKnownPosition = at;
+            ResumePatrolNear(at);
+        }
+
+        private void ApplyEscalation(int level)
+        {
+            Level = Mathf.Max(0, level);
+
+            float speed = Mathf.Min(maxSpeedMultiplier, 1f + speedGainPerReturn * Level);
+            senseScale = 1f + senseGainPerReturn * Level;
+            hearingScale = senseScale;
+
+            patrolSpeed = basePatrol * speed;
+            investigateSpeed = baseInvestigate * speed;
+            chaseSpeed = baseChase * speed;
+            dragSpeed = baseDrag * speed;
+
+            // More aggressive: sees further, clings on longer after losing
+            // sight, searches and waits around longer before giving up.
+            viewDistance = baseView * senseScale;
+            loseSightGrace = baseGrace * senseScale;
+            searchDuration = baseSearch * senseScale;
+            investigateWaitTime = baseWait * senseScale;
+        }
+
+        // On every machine: while banished there is nothing there to see,
+        // hit or bump into.
+        public void SetBanishedVisual(bool banished)
+        {
+            if (bodyRenderers != null)
+                foreach (Renderer r in bodyRenderers) if (r != null) r.enabled = !banished;
+            if (bodyColliders != null)
+                foreach (Collider c in bodyColliders) if (c != null) c.enabled = !banished;
         }
 
         // --- Buddy breakout ------------------------------------------------------
@@ -499,6 +700,9 @@ namespace FearMe.AI
 
         private void Stun(float seconds)
         {
+            // A brick cannot pull it back out of banishment early.
+            if (state == State.Banished) return;
+
             // Dropped where it stands: still down, but reachable for a revive.
             if (captive != null)
             {

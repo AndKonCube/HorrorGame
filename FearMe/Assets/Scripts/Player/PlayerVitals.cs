@@ -97,6 +97,9 @@ namespace FearMe.Player
         {
             if (IsDown || IsDead) return;
 
+            // Found hiding: dragged out of the closet or from under the bed.
+            if (self.IsConfined) HidingSpot.Release(self);
+
             IsDown = true;
             bleedOutRemaining = bleedOutSeconds;
             reviveProgress = 0f;

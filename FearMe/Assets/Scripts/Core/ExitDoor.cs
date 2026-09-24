@@ -20,7 +20,11 @@ namespace FearMe.Core
 
         private bool ItemDone => requiredItem == null || requiredItem.IsDelivered;
 
-        private bool Unlocked => KeysDone && ItemDone;
+        // Every exit bolt drawn, if the door has any.
+        private static bool BoltsDone =>
+            Deadbolt.Count == 0 || (SpawnDirector.Instance != null && SpawnDirector.Instance.State.boltsOpen >= Deadbolt.Count);
+
+        private bool Unlocked => KeysDone && ItemDone && BoltsDone;
 
         private bool CarryingRequired
         {
@@ -37,6 +41,11 @@ namespace FearMe.Core
             get
             {
                 if (!KeysDone) return "Locked - find every key";
+                if (!BoltsDone)
+                {
+                    int open = SpawnDirector.Instance != null ? SpawnDirector.Instance.State.boltsOpen : 0;
+                    return $"Barred - draw the bolts ({open}/{Deadbolt.Count})";
+                }
                 if (ItemDone) return "Escape";
                 return CarryingRequired
                     ? "Set down the " + requiredItem.DisplayName

@@ -16,6 +16,12 @@ namespace FearMe.Net
         // True once a session owns the run.
         public static bool Online;
 
+        // This machine is the host: it runs the stalker and decides the run.
+        public static bool IsHost;
+
+        // A player asking the host to change the run (RunRequest, argument).
+        public static Func<int, int, bool> RunRequested;
+
         // Shared by every machine in the session, so the random pruning that
         // decides where the keys are lands the same way for everyone. Null in
         // a solo run, which then picks its own seed.
@@ -47,6 +53,8 @@ namespace FearMe.Net
         public static void Clear()
         {
             Online = false;
+            IsHost = false;
+            RunRequested = null;
             RunSeed = null;
             KeyTaken = null;
             EscapeRequested = null;

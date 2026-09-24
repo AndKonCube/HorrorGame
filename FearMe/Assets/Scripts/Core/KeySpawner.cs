@@ -26,6 +26,17 @@ namespace FearMe.Core
 
         private void Awake()
         {
+            // The run director places zone keys itself; old candidate keys
+            // would be a second, conflicting set.
+            if (FindFirstObjectByType<SpawnDirector>() != null)
+            {
+                foreach (KeyItem key in candidates) if (key != null) Destroy(key.gameObject);
+                foreach (KeyItem key in guaranteed) if (key != null) Destroy(key.gameObject);
+                pruned = true;
+                enabled = false;
+                return;
+            }
+
             // Indexed before anything is removed, so an id means the same key
             // on both machines however the pruning falls.
             for (int i = 0; i < candidates.Count; i++)

@@ -7,6 +7,10 @@ namespace FearMe.Player
     // nausea. Applied as a local offset so look control stays untouched.
     public class HeadBob : MonoBehaviour
     {
+        // A held pose on top of the bob - leaning out to peek, or lying low
+        // under a bed. Set by whatever puts the player in that pose.
+        public Vector3 PoseOffset { get; set; }
+
         [SerializeField] private CharacterController controller;
         [SerializeField] private PlayerController player;
 
@@ -67,7 +71,7 @@ namespace FearMe.Player
             currentOffset = Vector3.Lerp(currentOffset, targetOffset, Time.deltaTime * smoothing);
             currentRoll = Mathf.Lerp(currentRoll, targetRoll, Time.deltaTime * smoothing);
 
-            transform.localPosition = restPosition + currentOffset;
+            transform.localPosition = restPosition + PoseOffset + currentOffset;
 
             // Roll only; pitch and yaw belong to the look controller.
             Vector3 euler = transform.localEulerAngles;

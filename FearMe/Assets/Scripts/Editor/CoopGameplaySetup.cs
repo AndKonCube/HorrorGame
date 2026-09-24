@@ -83,7 +83,7 @@ namespace FearMe.EditorTools
 
         // --- Player -----------------------------------------------------------------
 
-        private static PlayerController FindLocalPlayer()
+        internal static PlayerController FindLocalPlayer()
         {
             foreach (PlayerController candidate in Object.FindObjectsByType<PlayerController>(FindObjectsSortMode.None))
                 if (candidate.IsLocalPlayer) return candidate;
@@ -345,12 +345,26 @@ namespace FearMe.EditorTools
             EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
 
             Debug.Log("[FearMe] Lever gate created at the scene view. Move 'Gate' into a doorway, 'Lever' into a " +
-                "different room, and the key behind the gate" + (key != null ? "" : " (no KeySpawner found - add one by hand)") +
+                "different room, and the reward behind the gate" +
+                (key != null ? "" : Object.FindFirstObjectByType<SpawnDirector>() != null
+                    ? " (a heavily weighted spawn spot, since the run director places keys and pages)"
+                    : " (no KeySpawner found - add one by hand)") +
                 ". Then rebake the NavMesh.");
         }
 
         private static KeyItem BuildGuaranteedKey(Transform parent, Vector3 localPosition)
         {
+            // With the run director, keys and pages come from spawn spots: make
+            // the one behind the gate three times as likely to be used.
+            if (Object.FindFirstObjectByType<SpawnDirector>() != null)
+            {
+                GameObject spot = new GameObject("GatedSpawnSpot");
+                spot.transform.SetParent(parent, false);
+                spot.transform.localPosition = new Vector3(localPosition.x, 0f, localPosition.z);
+                SetFloat(spot.AddComponent<SpawnSpot>(), "weight", 3f);
+                return null;
+            }
+
             KeySpawner spawner = Object.FindFirstObjectByType<KeySpawner>();
             KeyItem existing = Object.FindFirstObjectByType<KeyItem>();
 
@@ -437,7 +451,7 @@ namespace FearMe.EditorTools
                 "Assign slam and creak clips on each when you have them.");
         }
 
-        private static void IgnoreInBake(GameObject go)
+        internal static void IgnoreInBake(GameObject go)
         {
             NavMeshModifier modifier = go.GetComponent<NavMeshModifier>();
             if (modifier == null) modifier = go.AddComponent<NavMeshModifier>();
@@ -451,7 +465,7 @@ namespace FearMe.EditorTools
 
         // Centres of NavMesh triangles on the player's storey that the player
         // can actually walk to, thinned to about one every 2m.
-        private static List<Vector3> ReachableSpots(Vector3 from)
+        internal static List<Vector3> ReachableSpots(Vector3 from)
         {
             NavMeshTriangulation mesh = NavMesh.CalculateTriangulation();
             List<Vector3> spots = new List<Vector3>();
@@ -527,7 +541,7 @@ namespace FearMe.EditorTools
 
         // --- Assets and fields --------------------------------------------------
 
-        private static Material GetMaterial(string name, Color color)
+        internal static Material GetMaterial(string name, Color color)
         {
             if (!AssetDatabase.IsValidFolder("Assets/Materials")) AssetDatabase.CreateFolder("Assets", "Materials");
             if (!AssetDatabase.IsValidFolder(MaterialFolder)) AssetDatabase.CreateFolder("Assets/Materials", "Generated");
@@ -542,22 +556,22 @@ namespace FearMe.EditorTools
             return material;
         }
 
-        private static void SetObject(Object target, string field, Object value) =>
+        internal static void SetObject(Object target, string field, Object value) =>
             Edit(target, field, p => p.objectReferenceValue = value);
 
-        private static void SetFloat(Object target, string field, float value) =>
+        internal static void SetFloat(Object target, string field, float value) =>
             Edit(target, field, p => p.floatValue = value);
 
-        private static void SetInt(Object target, string field, int value) =>
+        internal static void SetInt(Object target, string field, int value) =>
             Edit(target, field, p => p.intValue = value);
 
-        private static void SetBool(Object target, string field, bool value) =>
+        internal static void SetBool(Object target, string field, bool value) =>
             Edit(target, field, p => p.boolValue = value);
 
-        private static void SetString(Object target, string field, string value) =>
+        internal static void SetString(Object target, string field, string value) =>
             Edit(target, field, p => p.stringValue = value);
 
-        private static void SetVector(Object target, string field, Vector3 value) =>
+        internal static void SetVector(Object target, string field, Vector3 value) =>
             Edit(target, field, p => p.vector3Value = value);
 
         private static void Edit(Object target, string field, System.Action<SerializedProperty> set)

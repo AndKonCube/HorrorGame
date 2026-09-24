@@ -46,6 +46,13 @@ namespace FearMe.Net.Online
         private readonly NetworkVariable<bool> hidden = new NetworkVariable<bool>(false,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+        // In a hiding spot: holding breath, or peeking out. The demon on the
+        // host needs both to know whether it can hear or see them.
+        private readonly NetworkVariable<bool> breathHeld = new NetworkVariable<bool>(false,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+        private readonly NetworkVariable<bool> peeking = new NetworkVariable<bool>(false,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
         private PlayerController avatar;
         private PlayerVitals avatarVitals;
         private CharacterController avatarCollider;
@@ -167,6 +174,8 @@ namespace FearMe.Net.Online
             if (!Mathf.Approximately(noise.Value, radius)) noise.Value = radius;
 
             if (hidden.Value != local.IsHidden) hidden.Value = local.IsHidden;
+            if (breathHeld.Value != local.HoldingBreath) breathHeld.Value = local.HoldingBreath;
+            if (peeking.Value != local.IsPeeking) peeking.Value = local.IsPeeking;
         }
 
         // What the stalker on the server needs to know about someone it cannot
@@ -175,6 +184,8 @@ namespace FearMe.Net.Online
         {
             avatar.RemoteNoiseRadius = noise.Value;
             avatar.RemoteHidden = hidden.Value;
+            avatar.RemoteHoldingBreath = breathHeld.Value;
+            avatar.RemotePeeking = peeking.Value;
         }
 
         private void TickBleedOut()

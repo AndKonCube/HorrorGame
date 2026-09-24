@@ -461,6 +461,8 @@ namespace FearMe.EditorTools
             player.AddComponent<MicrophoneNoise>();
             player.AddComponent<PlayerSanity>();
             player.AddComponent<FearMe.Scares.HallucinationDirector>();
+            player.AddComponent<RiteCaster>();
+            player.AddComponent<HidingBreath>();
 
             return player;
         }

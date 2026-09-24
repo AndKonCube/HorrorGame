@@ -37,6 +37,14 @@ namespace FearMe.Player
         {
             exertion = Mathf.Clamp01(CurrentExertion());
 
+            // Holding it in: silence, and the next breath comes the moment
+            // they let go.
+            if (player != null && player.HoldingBreath)
+            {
+                nextBreath = Time.time + 0.15f;
+                return;
+            }
+
             if (Time.time < nextBreath) return;
 
             PlayBreath();

@@ -1,3 +1,4 @@
+using FearMe.AI;
 using FearMe.Player;
 using UnityEngine;
 
@@ -116,6 +117,99 @@ namespace FearMe.Core
             }
         }
 
+        private static readonly Color Gold = new Color(1f, 0.78f, 0.36f);
+
+        // Keys, pages, the banishment and the exit bolts, top left - and the
+        // big warnings across the top when the demon goes or comes back.
+        private void DrawRun(SpawnDirector director)
+        {
+            RunSnapshot run = director.State;
+
+            string keys = director.AllKeysHeld
+                ? "All keys found"
+                : $"Keys {run.keysHeld} / {director.KeyCount}  -  find the {director.KeyName(run.keysHeld)}";
+            GUI.Label(new Rect(24f, 20f, 700f, 30f), keys, textStyle);
+
+            GUIStyle pages = new GUIStyle(textStyle);
+            pages.normal.textColor = run.pagesHeld > 0 ? Gold : textStyle.normal.textColor;
+            string pageLine = run.pagesHeld > 0
+                ? $"Rite pages {run.pagesHeld} / {RunSnapshot.PageSlots}  -  hold R to banish it ({director.BanishFor(run.pagesHeld):0}s)"
+                : $"Rite pages 0 / {RunSnapshot.PageSlots}  -  listen for the whispering";
+            GUI.Label(new Rect(24f, 104f, 760f, 30f), pageLine, pages);
+
+            if (director.AllKeysHeld && Deadbolt.Count > 0 && run.boltsOpen < Deadbolt.Count)
+                GUI.Label(new Rect(24f, 132f, 760f, 30f),
+                    $"Exit bolts {run.boltsOpen} / {Deadbolt.Count}  -  every one is loud. Keep watch.", textStyle);
+
+            if (run.banished)
+            {
+                GUIStyle banished = new GUIStyle(centerStyle) { fontSize = 26 };
+                banished.normal.textColor = Gold;
+                GUI.Label(new Rect(0f, 24f, Screen.width, 40f),
+                    $"BANISHED  -  {Mathf.CeilToInt(director.BanishRemaining)}s", banished);
+            }
+            else if (Time.time - director.LastReturnTime < 4f)
+            {
+                GUIStyle back = new GUIStyle(centerStyle) { fontSize = 26 };
+                back.normal.textColor = new Color(0.8f, 0.1f, 0.1f);
+                GUI.Label(new Rect(0f, 24f, Screen.width, 40f), "IT HAS RETURNED  -  FASTER", back);
+            }
+        }
+
+        private void DrawChant(float cx, float cy)
+        {
+            PlayerController local = PlayerRegistry.Local;
+            RiteCaster caster = local != null ? local.GetComponent<RiteCaster>() : null;
+            if (caster == null || caster.Progress <= 0f) return;
+
+            GUIStyle chant = new GUIStyle(textStyle) { alignment = TextAnchor.MiddleCenter };
+            chant.normal.textColor = Gold;
+            GUI.Label(new Rect(cx - 200f, cy - 70f, 400f, 30f), "reading the rite...", chant);
+            DrawBar(new Rect(cx - 110f, cy - 40f, 220f, 6f), caster.Progress, Gold);
+        }
+
+        // While hidden: the controls, your breath, and whether it is close.
+        private void DrawHiding()
+        {
+            PlayerController local = PlayerRegistry.Local;
+            if (local == null || !local.IsConfined) return;
+
+            HidingBreath breath = local.GetComponent<HidingBreath>();
+            float bottom = Screen.height - 110f;
+
+            GUIStyle hint = new GUIStyle(textStyle) { alignment = TextAnchor.MiddleCenter };
+            GUI.Label(new Rect(0f, bottom, Screen.width, 26f), "SPACE hold breath  -  Q peek  -  E step out", hint);
+
+            if (breath != null)
+            {
+                Color colour = breath.Winded ? new Color(0.8f, 0.2f, 0.15f) : new Color(0.55f, 0.7f, 0.8f);
+                DrawBar(new Rect(Screen.width * 0.5f - 100f, bottom + 30f, 200f, 6f), breath.Breath, colour);
+            }
+
+            // Close enough to hear you breathe. Guests see this too: the
+            // stalker's body is synced even though it thinks on the host.
+            foreach (EnemyStalkerAI demon in FindObjectsByType<EnemyStalkerAI>(FindObjectsSortMode.None))
+            {
+                if (demon.IsBanished) continue;
+                if (Vector3.Distance(demon.transform.position, local.transform.position) > demon.SniffRange * 1.4f) continue;
+
+                GUIStyle warn = new GUIStyle(centerStyle) { fontSize = 24 };
+                warn.normal.textColor = new Color(0.8f, 0.12f, 0.1f);
+                GUI.Label(new Rect(0f, Screen.height * 0.3f, Screen.width, 36f),
+                    local.HoldingBreath ? "don't breathe" : "it's right outside", warn);
+                break;
+            }
+        }
+
+        private static void DrawBar(Rect rect, float fraction, Color colour)
+        {
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = colour;
+            GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width * Mathf.Clamp01(fraction), rect.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+
         private void DrawHeld()
         {
             PlayerController local = PlayerRegistry.Local;
@@ -152,7 +246,11 @@ namespace FearMe.Core
                 return;
             }
 
-            if (objectives != null)
+            if (SpawnDirector.Instance != null)
+            {
+                DrawRun(SpawnDirector.Instance);
+            }
+            else if (objectives != null)
             {
                 string status = objectives.AllKeysCollected
                     ? "All keys found - get to the door"
@@ -165,6 +263,7 @@ namespace FearMe.Core
 
             DrawVitals();
             DrawVoice();
+            DrawHiding();
 
             // Crosshair
             float cx = Screen.width * 0.5f;
@@ -179,7 +278,15 @@ namespace FearMe.Core
                     new Rect(cx - 200f, cy + 28f, 400f, 30f),
                     interactor.CurrentTarget.Prompt,
                     new GUIStyle(textStyle) { alignment = TextAnchor.MiddleCenter });
+
+                // Anything that takes a held effort shows how far along it is.
+                float effort = interactor.CurrentTarget is Deadbolt bolt ? bolt.Progress
+                    : interactor.CurrentTarget is CageSpot cage ? cage.Progress : 0f;
+                if (effort > 0f)
+                    DrawBar(new Rect(cx - 90f, cy + 60f, 180f, 6f), effort, new Color(0.8f, 0.75f, 0.65f));
             }
+
+            DrawChant(cx, cy);
         }
     }
 }

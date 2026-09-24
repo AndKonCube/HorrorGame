@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using FearMe.Core;
 using UnityEngine;
 
@@ -27,16 +28,65 @@ namespace FearMe.Player
         [SerializeField] private float openAngle = 95f;
         [SerializeField] private float doorSpeed = 260f;
 
+        [Header("Pose")]
+        [Tooltip("Eye height change while inside. Under a bed, about -1.2.")]
+        [SerializeField] private float eyeHeightOffset;
+        [Tooltip("How far the door cracks open while peeking.")]
+        [SerializeField] private float peekAngle = 16f;
+
         [Header("Noise")]
         [Tooltip("Diving in at a run slams the door - and it can hear that.")]
         [SerializeField] private float hastyNoiseRadius = 11f;
 
+        private static readonly List<HidingSpot> all = new List<HidingSpot>();
+
         private PlayerController occupant;
         private Coroutine doorMove;
+        private bool peeking;
 
         public bool IsOccupied => occupant != null;
+        public float EyeHeightOffset => eyeHeightOffset;
 
-        public override string Prompt => IsOccupied ? "Step out" : "Hide inside";
+        private void OnEnable()
+        {
+            if (!all.Contains(this)) all.Add(this);
+        }
+
+        private void OnDisable()
+        {
+            all.Remove(this);
+        }
+
+        // Where this player is hiding, if anywhere.
+        public static HidingSpot Holding(PlayerController player)
+        {
+            foreach (HidingSpot spot in all)
+                if (spot != null && spot.occupant == player) return spot;
+            return null;
+        }
+
+        // Pulled out - by the demon finding them, say.
+        public static void Release(PlayerController player)
+        {
+            HidingSpot spot = Holding(player);
+            if (spot != null) spot.Leave();
+        }
+
+        // The door eases open a crack while they look out, and shuts again.
+        public void SetPeek(bool on)
+        {
+            if (peeking == on || occupant == null) return;
+            peeking = on;
+
+            if (door == null) return;
+            if (doorMove != null) StopCoroutine(doorMove);
+            doorMove = StartCoroutine(MoveDoor(on ? peekAngle : 0f));
+        }
+
+        [Tooltip("What the prompt says - \"Hide under the bed\", say.")]
+        [SerializeField] private string hidePrompt = "Hide inside";
+
+        public override string Prompt => IsOccupied ? "Step out" : hidePrompt;
 
         private Transform Inside => insideAnchor != null ? insideAnchor : transform;
 
@@ -69,6 +119,7 @@ namespace FearMe.Player
         {
             PlayerController player = occupant;
             occupant = null;
+            peeking = false;
 
             SwingClosetDoor(closing: false);
             if (player != null) player.ExitConfinement(ExitPosition);

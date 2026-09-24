@@ -30,6 +30,13 @@ namespace FearMe.Core
             Changed?.Invoke();
         }
 
+        // The run director decides how many keys there are - one per zone.
+        public void SetKeysRequired(int value)
+        {
+            keysRequired = Mathf.Max(0, value);
+            Changed?.Invoke();
+        }
+
         // Online the server owns the count, so a client takes it whole rather
         // than incrementing and drifting.
         public void SetKeysCollected(int value)

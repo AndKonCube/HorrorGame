@@ -69,6 +69,23 @@ namespace FearMe.Player
         // closet state mean nothing here - the owner sends them instead.
         public float RemoteNoiseRadius { get; set; }
         public bool RemoteHidden { get; set; }
+        public bool RemoteHoldingBreath { get; set; }
+        public bool RemotePeeking { get; set; }
+
+        private bool holdingBreath;
+        private bool peeking;
+
+        // Hidden and holding it in: nothing for the demon to hear.
+        public bool HoldingBreath => isLocalPlayer ? holdingBreath : RemoteHoldingBreath;
+
+        // Hidden but looking out through the gap - which can be seen.
+        public bool IsPeeking => isLocalPlayer ? peeking : RemotePeeking;
+
+        // Extra degrees either side while peeking, beyond the hiding spot's own.
+        public float ConfinedLookBonus { get; set; }
+
+        public void SetBreathHeld(bool value) => holdingBreath = value;
+        public void SetPeeking(bool value) => peeking = value;
 
         public bool IsCrouching => isCrouching;
         public bool IsSprinting => isSprinting;
@@ -175,8 +192,8 @@ namespace FearMe.Player
             if (confined)
             {
                 // Penned in: you can only look out through the gap.
-                yaw = Mathf.Clamp(yaw, confinedYawCentre - confinedYawLimit,
-                    confinedYawCentre + confinedYawLimit);
+                float yawLimit = confinedYawLimit + ConfinedLookBonus;
+                yaw = Mathf.Clamp(yaw, confinedYawCentre - yawLimit, confinedYawCentre + yawLimit);
                 pitch = Mathf.Clamp(pitch, -confinedPitchLimit, confinedPitchLimit);
             }
 
@@ -250,6 +267,9 @@ namespace FearMe.Player
         public void ExitConfinement(Vector3 position)
         {
             confined = false;
+            holdingBreath = false;
+            peeking = false;
+            ConfinedLookBonus = 0f;
             Teleport(position);
         }
 

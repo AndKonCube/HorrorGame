@@ -18,12 +18,21 @@ namespace FearMe.Net.Online
         [SerializeField] private NetworkObject playerProxyPrefab;
 
         private readonly NetworkVariable<int> seed = new NetworkVariable<int>();
+
+        // The whole run's progress - keys, pages, zones, banishment, bolts -
+        // written by the host's run director, rendered by the guest's.
+        private readonly NetworkVariable<RunSnapshotNet> run = new NetworkVariable<RunSnapshotNet>();
+        private SpawnDirector director;
         private readonly NetworkList<int> takenKeys = new NetworkList<int>();
 
         private bool ended;
 
         public override void OnNetworkSpawn()
         {
+            // Before the seed: the run director reads who decides as soon as
+            // the seed appears.
+            CoopHooks.IsHost = IsServer;
+
             if (IsServer)
             {
                 seed.Value = Random.Range(int.MinValue, int.MaxValue);
@@ -39,11 +48,52 @@ namespace FearMe.Net.Online
             ApplyAllKeys();
 
             InstallHooks();
+            BindDirector();
+        }
+
+        private void BindDirector()
+        {
+            director = SpawnDirector.Instance;
+            if (director == null) return;
+
+            if (IsServer)
+            {
+                director.Changed += PushRun;
+                PushRun();
+                return;
+            }
+
+            run.OnValueChanged += OnRunChanged;
+            if (run.Value.Valid) director.ApplyRemote(run.Value.Value);
+
+            CoopHooks.RunRequested = (request, argument) =>
+            {
+                RunRequestRpc(request, argument);
+                return true;
+            };
+        }
+
+        private void PushRun()
+        {
+            if (director != null) run.Value = new RunSnapshotNet { Valid = true, Value = director.State };
+        }
+
+        private void OnRunChanged(RunSnapshotNet previous, RunSnapshotNet current)
+        {
+            if (director != null && current.Valid) director.ApplyRemote(current.Value);
+        }
+
+        [Rpc(SendTo.Server, RequireOwnership = false)]
+        private void RunRequestRpc(int request, int argument)
+        {
+            if (director != null) director.HandleRemote(request, argument);
         }
 
         public override void OnNetworkDespawn()
         {
             takenKeys.OnListChanged -= OnKeysChanged;
+            run.OnValueChanged -= OnRunChanged;
+            if (director != null) director.Changed -= PushRun;
 
             if (IsServer && NetworkManager != null)
                 NetworkManager.OnClientConnectedCallback -= SpawnProxyFor;
