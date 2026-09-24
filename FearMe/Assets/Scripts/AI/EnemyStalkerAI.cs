@@ -281,6 +281,7 @@ namespace FearMe.AI
                     float peekDistance = toPeeker.magnitude;
                     if (peekDistance > peekSpotRange * senseScale || peekDistance >= bestDistance) continue;
                     if (Vector3.Angle(eyes.forward, toPeeker) > viewAngle * 0.5f) continue;
+                    if (!PeekVisible(candidate)) continue;
 
                     best = candidate;
                     bestDistance = peekDistance;
@@ -300,6 +301,21 @@ namespace FearMe.AI
             }
 
             return best;
+        }
+
+        // The closet or bed they are in never hides a face at the gap - but a
+        // real wall between the two of them still does.
+        private bool PeekVisible(PlayerController peeker)
+        {
+            Vector3 face = peeker.transform.position + Vector3.up * 1.2f;
+            Vector3 toFace = face - eyes.position;
+
+            if (!Physics.Raycast(eyes.position, toFace.normalized, out RaycastHit hit,
+                    Mathf.Max(0f, toFace.magnitude - 0.3f), obstructionMask, QueryTriggerInteraction.Ignore))
+                return true;
+
+            return hit.collider.GetComponentInParent<HidingSpot>() != null ||
+                   hit.collider.transform.IsChildOf(peeker.transform);
         }
 
         private PlayerController FindAudiblePlayer()
