@@ -21,11 +21,11 @@ namespace FearMe.EditorTools
         private const string GameScenePath = "Assets/Scenes/Demo.unity";
         private const string InputActionsPath = "Assets/InputSystem_Actions.inputactions";
 
-        private static readonly Color Ink = new Color(0.86f, 0.85f, 0.82f);
-        private static readonly Color Dim = new Color(0.55f, 0.54f, 0.52f);
-        private static readonly Color PanelColor = new Color(0.07f, 0.07f, 0.08f, 0.92f);
-        private static readonly Color ButtonColor = new Color(0.16f, 0.16f, 0.18f, 1f);
-        private static readonly Color Accent = new Color(0.55f, 0.12f, 0.12f, 1f);
+        internal static readonly Color Ink = new Color(0.86f, 0.85f, 0.82f);
+        internal static readonly Color Dim = new Color(0.55f, 0.54f, 0.52f);
+        internal static readonly Color PanelColor = new Color(0.07f, 0.07f, 0.08f, 0.92f);
+        internal static readonly Color ButtonColor = new Color(0.16f, 0.16f, 0.18f, 1f);
+        internal static readonly Color Accent = new Color(0.55f, 0.12f, 0.12f, 1f);
 
         [MenuItem("Tools/FearMe/Build Main Menu Scene")]
         public static void BuildMainMenu()
@@ -43,20 +43,26 @@ namespace FearMe.EditorTools
             Canvas canvas = BuildCanvas();
             CreateStretchedImage(canvas.transform, "Background", new Color(0.03f, 0.03f, 0.04f, 1f));
 
-            GameObject mainPanel = BuildMainPanel(canvas.transform, font, out Button play, out Button settings, out Button quit);
+            GameObject mainPanel = BuildMainPanel(canvas.transform, font,
+                out Button play, out Button coop, out Button settings, out Button quit);
             GameObject settingsPanel = BuildSettingsPanel(canvas.transform, font, out SettingsPanel panelScript, out Button back);
+            GameObject lobbyPanel = LobbyPanelBuilder.Build(canvas.transform, font, out Button lobbyBack);
 
             MainMenuController controller = canvas.gameObject.AddComponent<MainMenuController>();
             SetObjectField(controller, "mainPanel", mainPanel);
             SetObjectField(controller, "settingsPanel", settingsPanel);
+            SetObjectField(controller, "lobbyPanel", lobbyPanel);
             SetStringField(controller, "gameSceneName", "Demo");
 
             UnityEventTools.AddPersistentListener(play.onClick, controller.OnPlay);
+            UnityEventTools.AddPersistentListener(coop.onClick, controller.OnOpenLobby);
+            UnityEventTools.AddPersistentListener(lobbyBack.onClick, controller.OnCloseLobby);
             UnityEventTools.AddPersistentListener(settings.onClick, controller.OnOpenSettings);
             UnityEventTools.AddPersistentListener(quit.onClick, controller.OnQuit);
             UnityEventTools.AddPersistentListener(back.onClick, controller.OnCloseSettings);
 
             settingsPanel.SetActive(false);
+            lobbyPanel.SetActive(false);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -158,7 +164,7 @@ namespace FearMe.EditorTools
         }
 
         private static GameObject BuildMainPanel(Transform parent, Font font,
-            out Button play, out Button settings, out Button quit)
+            out Button play, out Button coop, out Button settings, out Button quit)
         {
             RectTransform panel = CreateRect(parent, "MainPanel", new Vector2(600f, 640f), Vector2.zero);
 
@@ -167,12 +173,13 @@ namespace FearMe.EditorTools
             CreateText(panel, "Subtitle", "ST. ALDEN MEMORIAL  ·  FIRST FLOOR", font, 20,
                 TextAnchor.MiddleCenter, Dim, new Vector2(560f, 34f), new Vector2(0f, 150f));
 
-            play = CreateButton(panel, "PlayButton", "PLAY", font, new Vector2(0f, 40f));
-            settings = CreateButton(panel, "SettingsButton", "SETTINGS", font, new Vector2(0f, -30f));
-            quit = CreateButton(panel, "QuitButton", "QUIT", font, new Vector2(0f, -100f));
+            play = CreateButton(panel, "PlayButton", "PLAY", font, new Vector2(0f, 75f));
+            coop = CreateButton(panel, "CoopButton", "CO-OP", font, new Vector2(0f, 5f));
+            settings = CreateButton(panel, "SettingsButton", "SETTINGS", font, new Vector2(0f, -65f));
+            quit = CreateButton(panel, "QuitButton", "QUIT", font, new Vector2(0f, -135f));
 
             CreateText(panel, "Hint", "WASD move  ·  Shift run  ·  C crouch  ·  F flashlight  ·  E interact",
-                font, 16, TextAnchor.MiddleCenter, Dim, new Vector2(600f, 30f), new Vector2(0f, -220f));
+                font, 16, TextAnchor.MiddleCenter, Dim, new Vector2(600f, 30f), new Vector2(0f, -235f));
 
             return panel.gameObject;
         }
@@ -270,7 +277,7 @@ namespace FearMe.EditorTools
             return toggle;
         }
 
-        private static Button CreateButton(Transform parent, string name, string label, Font font, Vector2 position)
+        internal static Button CreateButton(Transform parent, string name, string label, Font font, Vector2 position)
         {
             RectTransform root = CreateRect(parent, name, new Vector2(320f, 56f), position);
 
@@ -293,7 +300,7 @@ namespace FearMe.EditorTools
             return button;
         }
 
-        private static Text CreateText(Transform parent, string name, string content, Font font, int size,
+        internal static Text CreateText(Transform parent, string name, string content, Font font, int size,
             TextAnchor anchor, Color color, Vector2 rectSize, Vector2 position)
         {
             RectTransform rect = CreateRect(parent, name, rectSize, position);
@@ -308,7 +315,7 @@ namespace FearMe.EditorTools
             return text;
         }
 
-        private static RectTransform CreateRect(Transform parent, string name, Vector2 size, Vector2 position)
+        internal static RectTransform CreateRect(Transform parent, string name, Vector2 size, Vector2 position)
         {
             GameObject go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent, false);
@@ -322,7 +329,7 @@ namespace FearMe.EditorTools
             return rect;
         }
 
-        private static RectTransform CreateStretchedRect(Transform parent, string name, float horizontal, float vertical)
+        internal static RectTransform CreateStretchedRect(Transform parent, string name, float horizontal, float vertical)
         {
             GameObject go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent, false);
@@ -335,7 +342,7 @@ namespace FearMe.EditorTools
             return rect;
         }
 
-        private static Image CreateStretchedImage(Transform parent, string name, Color color)
+        internal static Image CreateStretchedImage(Transform parent, string name, Color color)
         {
             RectTransform rect = CreateStretchedRect(parent, name, 0f, 0f);
             Image image = rect.gameObject.AddComponent<Image>();
@@ -344,7 +351,7 @@ namespace FearMe.EditorTools
         }
 
         // Unity renamed the built-in font; try both, then anything in the project.
-        private static Font ResolveFont()
+        internal static Font ResolveFont()
         {
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (font != null) return font;
@@ -381,7 +388,7 @@ namespace FearMe.EditorTools
             EditorBuildSettings.scenes = scenes.ToArray();
         }
 
-        private static void SetObjectField(Object target, string fieldName, Object value)
+        internal static void SetObjectField(Object target, string fieldName, Object value)
         {
             SerializedObject so = new SerializedObject(target);
             SerializedProperty prop = so.FindProperty(fieldName);
@@ -394,7 +401,7 @@ namespace FearMe.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        private static void SetObjectArrayField(Object target, string fieldName, Object[] values)
+        internal static void SetObjectArrayField(Object target, string fieldName, Object[] values)
         {
             SerializedObject so = new SerializedObject(target);
             SerializedProperty prop = so.FindProperty(fieldName);
@@ -406,7 +413,7 @@ namespace FearMe.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        private static void SetEnumField(Object target, string fieldName, int enumIndex)
+        internal static void SetEnumField(Object target, string fieldName, int enumIndex)
         {
             SerializedObject so = new SerializedObject(target);
             SerializedProperty prop = so.FindProperty(fieldName);
@@ -415,7 +422,7 @@ namespace FearMe.EditorTools
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        private static void SetStringField(Object target, string fieldName, string value)
+        internal static void SetStringField(Object target, string fieldName, string value)
         {
             SerializedObject so = new SerializedObject(target);
             SerializedProperty prop = so.FindProperty(fieldName);

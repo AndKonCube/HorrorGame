@@ -1,3 +1,4 @@
+using FearMe.Net;
 using FearMe.Settings;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -9,6 +10,7 @@ namespace FearMe.UI
         [SerializeField] private string gameSceneName = "Demo";
         [SerializeField] private GameObject mainPanel;
         [SerializeField] private GameObject settingsPanel;
+        [SerializeField] private GameObject lobbyPanel;
 
         private void Start()
         {
@@ -21,6 +23,20 @@ namespace FearMe.UI
         public void OnPlay()
         {
             SceneManager.LoadScene(gameSceneName);
+        }
+
+        public void OnOpenLobby()
+        {
+            if (mainPanel != null) mainPanel.SetActive(false);
+            if (lobbyPanel != null) lobbyPanel.SetActive(true);
+        }
+
+        // Backing out of the lobby has to drop the session too, or the next
+        // visit reopens a lobby the player thinks they left.
+        public void OnCloseLobby()
+        {
+            CoopSession.Leave();
+            ShowMain();
         }
 
         public void OnOpenSettings()
@@ -44,6 +60,7 @@ namespace FearMe.UI
         private void ShowMain()
         {
             if (settingsPanel != null) settingsPanel.SetActive(false);
+            if (lobbyPanel != null) lobbyPanel.SetActive(false);
             if (mainPanel != null) mainPanel.SetActive(true);
         }
     }
