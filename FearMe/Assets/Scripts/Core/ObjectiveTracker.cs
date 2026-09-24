@@ -8,6 +8,8 @@ namespace FearMe.Core
 
         [SerializeField] private int keysRequired = 3;
 
+        public event System.Action Changed;
+
         public int KeysRequired => keysRequired;
         public int KeysCollected { get; private set; }
         public bool AllKeysCollected => KeysCollected >= keysRequired;
@@ -25,6 +27,18 @@ namespace FearMe.Core
         public void CollectKey()
         {
             KeysCollected++;
+            Changed?.Invoke();
+        }
+
+        // Online the server owns the count, so a client takes it whole rather
+        // than incrementing and drifting.
+        public void SetKeysCollected(int value)
+        {
+            int clamped = Mathf.Clamp(value, 0, keysRequired);
+            if (clamped == KeysCollected) return;
+
+            KeysCollected = clamped;
+            Changed?.Invoke();
         }
     }
 }

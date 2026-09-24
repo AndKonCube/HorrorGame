@@ -1,4 +1,5 @@
 using System.Collections;
+using FearMe.Net;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -25,6 +26,17 @@ namespace FearMe.Core
         public void OnPlayerCaught()
         {
             if (IsFinished) return;
+
+            // Online the run has to end on both machines at once, so the
+            // server says so and this comes back as ApplyCaught.
+            if (CoopHooks.RunEnded != null && CoopHooks.RunEnded(false)) return;
+
+            ApplyCaught();
+        }
+
+        public void ApplyCaught()
+        {
+            if (IsFinished) return;
             IsFinished = true;
             DidEscape = false;
 
@@ -33,6 +45,15 @@ namespace FearMe.Core
         }
 
         public void OnPlayerEscaped()
+        {
+            if (IsFinished) return;
+
+            if (CoopHooks.RunEnded != null && CoopHooks.RunEnded(true)) return;
+
+            ApplyEscaped();
+        }
+
+        public void ApplyEscaped()
         {
             if (IsFinished) return;
             IsFinished = true;
@@ -46,7 +67,10 @@ namespace FearMe.Core
             yield return FadeOut(fadeDuration);
             yield return new WaitForSeconds(delayBeforeReload);
 
-            // Straight back into the level for another attempt.
+            // Straight back into the level for another attempt - online, the
+            // host reloads it for everyone.
+            if (CoopHooks.RestartRequested != null && CoopHooks.RestartRequested()) yield break;
+
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
 
@@ -82,6 +106,10 @@ namespace FearMe.Core
 
         private void LoadMenu()
         {
+            // The run is over for both players; drop the session before the
+            // menu loads, so it is not left running behind the lobby.
+            CoopSession.Leave();
+
             // A scene missing from the build list would hard-fail, so check first.
             if (!string.IsNullOrEmpty(menuSceneName) && Application.CanStreamedLevelBeLoaded(menuSceneName))
             {

@@ -53,20 +53,36 @@ namespace FearMe.Player
         private float confinedPitchLimit;
         private bool incapacitated;
 
-        // Set false for remote players once netcode owns them.
-        public bool IsLocalPlayer { get; set; } = true;
+        [Header("Network")]
+        [Tooltip("Off for a teammate's body: it is driven by the network, not by " +
+            "this machine's input. Serialized so a remote body is never mistaken " +
+            "for the local player, even for the frame before netcode claims it.")]
+        [SerializeField] private bool isLocalPlayer = true;
+
+        public bool IsLocalPlayer
+        {
+            get => isLocalPlayer;
+            set => isLocalPlayer = value;
+        }
+
+        // A remote player's controller never moves itself, so its velocity and
+        // closet state mean nothing here - the owner sends them instead.
+        public float RemoteNoiseRadius { get; set; }
+        public bool RemoteHidden { get; set; }
 
         public bool IsCrouching => isCrouching;
         public bool IsIncapacitated => incapacitated;
 
         // Shut inside a closet: out of sight until you step back out.
-        public bool IsHidden => confined;
+        public bool IsHidden => isLocalPlayer ? confined : RemoteHidden;
         public bool IsConfined => confined;
 
         public float CurrentNoiseRadius
         {
             get
             {
+                if (!isLocalPlayer) return RemoteNoiseRadius;
+
                 Vector3 flatVelocity = controller.velocity;
                 flatVelocity.y = 0f;
                 bool isStationary = flatVelocity.sqrMagnitude < 0.01f;
@@ -228,6 +244,15 @@ namespace FearMe.Player
         public void ExitConfinement(Vector3 position)
         {
             confined = false;
+            Teleport(position);
+        }
+
+        // For spawning a second player beside the first, or putting a player
+        // somewhere the network says they are.
+        public void Warp(Vector3 position, float facingYaw)
+        {
+            yaw = facingYaw;
+            transform.rotation = Quaternion.Euler(0f, yaw, 0f);
             Teleport(position);
         }
 

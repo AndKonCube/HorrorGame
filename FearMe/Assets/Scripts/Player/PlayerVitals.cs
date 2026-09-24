@@ -1,4 +1,5 @@
 using FearMe.Core;
+using FearMe.Net;
 using UnityEngine;
 
 namespace FearMe.Player
@@ -23,7 +24,13 @@ namespace FearMe.Player
 
         public bool IsDown { get; private set; }
         public bool IsDead { get; private set; }
+
+        // The server runs the bleed-out clock once a session owns the run, so
+        // a client must not also tick it and race the answer.
+        public bool OwnsTimer { get; set; } = true;
         public float BleedOutRemaining => bleedOutRemaining;
+        public float BleedOutSeconds => bleedOutSeconds;
+        public float ReviveRange => reviveRange;
         public float BleedOutFraction => Mathf.Clamp01(bleedOutRemaining / Mathf.Max(0.01f, bleedOutSeconds));
         public float ReviveFraction => Mathf.Clamp01(reviveProgress / Mathf.Max(0.01f, reviveSeconds));
 
@@ -40,14 +47,27 @@ namespace FearMe.Player
         {
             if (!IsDown || IsDead) return;
 
-            bleedOutRemaining -= Time.deltaTime;
-            if (bleedOutRemaining <= 0f) Die();
+            if (OwnsTimer)
+            {
+                bleedOutRemaining -= Time.deltaTime;
+                if (bleedOutRemaining <= 0f) Die();
+            }
 
             // Reviving has to be continuous; stepping away loses the progress.
             reviveProgress = Mathf.MoveTowards(reviveProgress, 0f, Time.deltaTime);
         }
 
         public void GoDown()
+        {
+            if (IsDown || IsDead) return;
+
+            // Online it is the server's call, and it comes back as state.
+            if (CoopHooks.DownRequested != null && CoopHooks.DownRequested(this)) return;
+
+            ApplyDown();
+        }
+
+        public void ApplyDown()
         {
             if (IsDown || IsDead) return;
 
@@ -74,9 +94,34 @@ namespace FearMe.Player
         {
             if (IsDead) return;
 
+            if (CoopHooks.ReviveRequested != null && CoopHooks.ReviveRequested(this)) return;
+
+            ApplyRevive();
+        }
+
+        public void ApplyRevive()
+        {
+            if (IsDead) return;
+
             IsDown = false;
             reviveProgress = 0f;
             self.SetIncapacitated(false);
+        }
+
+        // Whole state in one go, from the server's copy.
+        public void ApplyNetworkVitals(bool down, bool dead, float remaining)
+        {
+            if (dead && !IsDead)
+            {
+                Die();
+                return;
+            }
+
+            if (down && !IsDown) ApplyDown();
+            else if (!down && IsDown) ApplyRevive();
+
+            // After the transitions, which set a full timer of their own.
+            if (IsDown && !IsDead) bleedOutRemaining = remaining;
         }
 
         private void Die()

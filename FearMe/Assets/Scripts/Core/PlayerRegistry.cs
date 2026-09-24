@@ -16,20 +16,31 @@ namespace FearMe.Core
         public static IReadOnlyList<PlayerController> All => players;
 
         // The player this machine controls. Remote players are not it.
-        public static PlayerController Local { get; private set; }
+        //
+        // Worked out on demand rather than cached at registration, because
+        // netcode can decide who owns a player after it has already enabled.
+        public static PlayerController Local
+        {
+            get
+            {
+                foreach (PlayerController player in players)
+                {
+                    if (player != null && player.IsLocalPlayer) return player;
+                }
+                return null;
+            }
+        }
 
         public static void Register(PlayerController player)
         {
             if (player == null || players.Contains(player)) return;
 
             players.Add(player);
-            if (player.IsLocalPlayer) Local = player;
         }
 
         public static void Unregister(PlayerController player)
         {
             players.Remove(player);
-            if (Local == player) Local = null;
         }
 
         public static bool AnyAlive()
