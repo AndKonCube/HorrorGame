@@ -78,6 +78,16 @@ namespace FearMe.Net.Online
             CoopHooks.DownRequested = NetworkPlayer.HandleDownRequest;
             CoopHooks.ReviveRequested = NetworkPlayer.HandleReviveRequest;
 
+            // The stalker only runs here on the host, so a guest's noise is
+            // sent over; the host's own noise needs no help.
+            CoopHooks.NoiseMade = IsServer ? null : (System.Func<Vector3, float, bool>)((position, radius) =>
+            {
+                NoiseRpc(position, radius);
+                return true;
+            });
+
+            CoopHooks.PropChanged = (id, state, value) => PropRpc(id, state, value);
+
             // Both machines ask; only the host acts. The guest just waits to
             // be carried along by the scene load.
             CoopHooks.RestartRequested = () =>
@@ -154,6 +164,24 @@ namespace FearMe.Net.Online
         {
             if (ObjectiveTracker.Instance != null)
                 ObjectiveTracker.Instance.SetKeysCollected(takenKeys.Count);
+        }
+
+        // --- Props ---------------------------------------------------------------
+
+        // Last writer wins: two friends, one door, and whoever touched it
+        // most recently is right.
+        [Rpc(SendTo.NotMe, RequireOwnership = false)]
+        private void PropRpc(int id, int state, float value)
+        {
+            PropSync.Receive(id, state, value);
+        }
+
+        // --- Noise ---------------------------------------------------------------
+
+        [Rpc(SendTo.Server, RequireOwnership = false)]
+        private void NoiseRpc(Vector3 position, float radius)
+        {
+            NoiseBus.EmitLocal(position, radius);
         }
 
         // --- End of the run -----------------------------------------------------

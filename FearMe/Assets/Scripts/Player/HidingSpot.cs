@@ -27,6 +27,10 @@ namespace FearMe.Player
         [SerializeField] private float openAngle = 95f;
         [SerializeField] private float doorSpeed = 260f;
 
+        [Header("Noise")]
+        [Tooltip("Diving in at a run slams the door - and it can hear that.")]
+        [SerializeField] private float hastyNoiseRadius = 11f;
+
         private PlayerController occupant;
         private Coroutine doorMove;
 
@@ -48,12 +52,17 @@ namespace FearMe.Player
 
         private void Enter()
         {
-            PlayerController player = FindFirstObjectByType<PlayerController>();
+            // The local player specifically - in co-op the teammate's body is
+            // a PlayerController too.
+            PlayerController player = PlayerRegistry.Local;
             if (player == null || player.IsConfined) return;
+
+            // Hiding in a panic is the loud way to hide.
+            if (player.IsSprinting) NoiseBus.Emit(Inside.position, hastyNoiseRadius);
 
             occupant = player;
             player.EnterConfinement(Inside.position, Inside.eulerAngles.y, yawLimit, pitchLimit);
-            SwingDoor(closing: true);
+            SwingClosetDoor(closing: true);
         }
 
         private void Leave()
@@ -61,11 +70,11 @@ namespace FearMe.Player
             PlayerController player = occupant;
             occupant = null;
 
-            SwingDoor(closing: false);
+            SwingClosetDoor(closing: false);
             if (player != null) player.ExitConfinement(ExitPosition);
         }
 
-        private void SwingDoor(bool closing)
+        private void SwingClosetDoor(bool closing)
         {
             if (door == null) return;
 

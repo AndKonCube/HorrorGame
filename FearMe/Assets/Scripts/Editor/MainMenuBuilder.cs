@@ -202,12 +202,16 @@ namespace FearMe.EditorTools
 
             back = CreateButton(panel, "BackButton", "BACK", font, new Vector2(0f, -225f));
 
+            SettingsVoiceRows.Add(panel, font, out Toggle mic, out Slider micSensitivity);
+
             panelScript = panel.gameObject.AddComponent<SettingsPanel>();
             SetObjectField(panelScript, "masterSlider", master);
             SetObjectField(panelScript, "ambientSlider", ambient);
             SetObjectField(panelScript, "sfxSlider", sfx);
             SetObjectField(panelScript, "sensitivitySlider", sensitivity);
             SetObjectField(panelScript, "invertToggle", invert);
+            SetObjectField(panelScript, "micToggle", mic);
+            SetObjectField(panelScript, "micSensitivitySlider", micSensitivity);
             SetObjectField(panelScript, "masterValue", masterValue);
             SetObjectField(panelScript, "ambientValue", ambientValue);
             SetObjectField(panelScript, "sfxValue", sfxValue);
@@ -216,7 +220,7 @@ namespace FearMe.EditorTools
             return panel.gameObject;
         }
 
-        private static Slider CreateSliderRow(Transform parent, string name, string label, Font font,
+        internal static Slider CreateSliderRow(Transform parent, string name, string label, Font font,
             float y, float min, float max, out Text valueLabel)
         {
             CreateText(parent, name + "Label", label, font, 20, TextAnchor.MiddleLeft, Ink,
@@ -257,7 +261,7 @@ namespace FearMe.EditorTools
             return slider;
         }
 
-        private static Toggle CreateToggleRow(Transform parent, string name, string label, Font font, float y)
+        internal static Toggle CreateToggleRow(Transform parent, string name, string label, Font font, float y)
         {
             CreateText(parent, name + "Label", label, font, 20, TextAnchor.MiddleLeft, Ink,
                 new Vector2(300f, 30f), new Vector2(-230f, y));

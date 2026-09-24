@@ -92,6 +92,21 @@ namespace FearMe.Core
             }
         }
 
+        // Only when the microphone is on and picking you up: a warning that
+        // arrives before the stalker does.
+        private void DrawVoice()
+        {
+            float level = MicrophoneNoise.Level;
+            if (level <= 0f) return;
+
+            GUIStyle voice = new GUIStyle(textStyle) { alignment = TextAnchor.LowerCenter };
+            voice.normal.textColor = Color.Lerp(new Color(0.7f, 0.68f, 0.64f, 0.6f),
+                new Color(0.85f, 0.15f, 0.12f, 1f), level);
+
+            GUI.Label(new Rect(0f, Screen.height - 70f, Screen.width, 30f),
+                level > 0.6f ? "IT CAN HEAR YOU" : "your voice carries", voice);
+        }
+
         private void OnGUI()
         {
             BuildStyles();
@@ -113,6 +128,7 @@ namespace FearMe.Core
             GUI.Label(new Rect(24f, 48f, 460f, 30f), "F flashlight - C crouch - Shift run", textStyle);
 
             DrawVitals();
+            DrawVoice();
 
             // Crosshair
             float cx = Screen.width * 0.5f;

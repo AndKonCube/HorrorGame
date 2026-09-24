@@ -40,6 +40,11 @@ namespace FearMe.AI
         [Tooltip("Give up on a waypoint after this long and move to the next.")]
         [SerializeField] private float waypointTimeout = 12f;
 
+        [Header("Hearing")]
+        [Tooltip("Sounds from further above or below than this are on another " +
+            "storey - heard through a floor, they would drag it the wrong way.")]
+        [SerializeField] private float hearingFloorGap = 2.5f;
+
         [Header("Events")]
         public UnityEvent onPlayerCaught;
 
@@ -53,6 +58,10 @@ namespace FearMe.AI
         private float destinationSetAt;
         private PlayerController quarry;
 
+        private bool noisePending;
+        private Vector3 noiseAt;
+        private float noiseStrength;
+
         private void Awake()
         {
             agent = GetComponent<NavMeshAgent>();
@@ -62,6 +71,37 @@ namespace FearMe.AI
         private void Start()
         {
             EnterPatrol();
+        }
+
+        private void OnEnable()
+        {
+            NoiseBus.Emitted += OnNoise;
+        }
+
+        private void OnDisable()
+        {
+            NoiseBus.Emitted -= OnNoise;
+        }
+
+        // Several sounds in one frame: go for the one that was loudest here.
+        private void OnNoise(NoiseEvent noise)
+        {
+            if (!SameStorey(noise.position)) return;
+
+            float distance = Vector3.Distance(transform.position, noise.position);
+            if (distance > noise.radius) return;
+
+            float strength = 1f - distance / noise.radius;
+            if (noisePending && strength <= noiseStrength) return;
+
+            noisePending = true;
+            noiseAt = noise.position;
+            noiseStrength = strength;
+        }
+
+        private bool SameStorey(Vector3 position)
+        {
+            return Mathf.Abs(position.y - transform.position.y) <= hearingFloorGap;
         }
 
         private void Update()
@@ -82,6 +122,17 @@ namespace FearMe.AI
             PlayerController seen = FindVisiblePlayer();
             PlayerController heard = seen == null ? FindAudiblePlayer() : seen;
             if (seen != null) quarry = seen;
+
+            // A sound is a place to go, not a person to chase: it never pulls
+            // the stalker off someone it can actually see.
+            bool noise = noisePending;
+            noisePending = false;
+            if (noise && seen == null && state != State.Chase)
+            {
+                EnterInvestigate(noiseAt);
+                CheckCatch();
+                return;
+            }
 
             switch (state)
             {
@@ -132,6 +183,8 @@ namespace FearMe.AI
         {
             foreach (PlayerController candidate in Targets())
             {
+                if (!SameStorey(candidate.transform.position)) continue;
+
                 float distance = Vector3.Distance(transform.position, candidate.transform.position);
                 if (distance <= candidate.CurrentNoiseRadius) return candidate;
             }

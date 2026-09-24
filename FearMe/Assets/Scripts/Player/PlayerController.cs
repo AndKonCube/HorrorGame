@@ -71,6 +71,7 @@ namespace FearMe.Player
         public bool RemoteHidden { get; set; }
 
         public bool IsCrouching => isCrouching;
+        public bool IsSprinting => isSprinting;
         public bool IsIncapacitated => incapacitated;
 
         // Shut inside a closet: out of sight until you step back out.

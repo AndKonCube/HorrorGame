@@ -35,6 +35,12 @@ namespace FearMe.Net
         // A scene reload has to happen on every machine at once.
         public static Func<bool> RestartRequested;
 
+        // The stalker lives on the host; a guest's noise is sent there.
+        public static Func<UnityEngine.Vector3, float, bool> NoiseMade;
+
+        // A door, lever or carried thing changed here; tell the other player.
+        public static Action<int, int, float> PropChanged;
+
         public static void Clear()
         {
             Online = false;
@@ -45,6 +51,8 @@ namespace FearMe.Net
             DownRequested = null;
             ReviveRequested = null;
             RestartRequested = null;
+            NoiseMade = null;
+            PropChanged = null;
         }
     }
 }

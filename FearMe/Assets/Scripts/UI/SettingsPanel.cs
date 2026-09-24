@@ -15,6 +15,11 @@ namespace FearMe.UI
         [SerializeField] private Slider sensitivitySlider;
         [SerializeField] private Toggle invertToggle;
 
+        [Header("Voice")]
+        [Tooltip("Optional. Lets the player's real voice make noise in the game.")]
+        [SerializeField] private Toggle micToggle;
+        [SerializeField] private Slider micSensitivitySlider;
+
         [Header("Value readouts")]
         [SerializeField] private Text masterValue;
         [SerializeField] private Text ambientValue;
@@ -33,12 +38,21 @@ namespace FearMe.UI
             if (sfxSlider != null) sfxSlider.value = settings.sfxVolume;
             if (sensitivitySlider != null) sensitivitySlider.value = settings.mouseSensitivity;
             if (invertToggle != null) invertToggle.isOn = settings.invertLook;
+            if (micToggle != null) micToggle.isOn = settings.micAttractsMonster;
+            if (micSensitivitySlider != null) micSensitivitySlider.value = settings.micSensitivity;
             binding = false;
 
             Listen(masterSlider, OnMasterChanged);
             Listen(ambientSlider, OnAmbientChanged);
             Listen(sfxSlider, OnSfxChanged);
             Listen(sensitivitySlider, OnSensitivityChanged);
+            Listen(micSensitivitySlider, OnMicSensitivityChanged);
+
+            if (micToggle != null)
+            {
+                micToggle.onValueChanged.RemoveListener(OnMicChanged);
+                micToggle.onValueChanged.AddListener(OnMicChanged);
+            }
 
             if (invertToggle != null)
             {
@@ -56,6 +70,8 @@ namespace FearMe.UI
             Unlisten(sfxSlider, OnSfxChanged);
             Unlisten(sensitivitySlider, OnSensitivityChanged);
             if (invertToggle != null) invertToggle.onValueChanged.RemoveListener(OnInvertChanged);
+            Unlisten(micSensitivitySlider, OnMicSensitivityChanged);
+            if (micToggle != null) micToggle.onValueChanged.RemoveListener(OnMicChanged);
         }
 
         private static void Listen(Slider slider, UnityEngine.Events.UnityAction<float> handler)
@@ -106,6 +122,20 @@ namespace FearMe.UI
         {
             if (binding) return;
             GameSettingsService.Current.invertLook = value;
+            GameSettingsService.Apply();
+        }
+
+        private void OnMicChanged(bool value)
+        {
+            if (binding) return;
+            GameSettingsService.Current.micAttractsMonster = value;
+            GameSettingsService.Apply();
+        }
+
+        private void OnMicSensitivityChanged(float value)
+        {
+            if (binding) return;
+            GameSettingsService.Current.micSensitivity = value;
             GameSettingsService.Apply();
         }
 

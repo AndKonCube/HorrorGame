@@ -16,6 +16,11 @@ namespace FearMe.Settings
         // any other and lives in the same file.
         public string playerName = "PLAYER";
 
+        // Off unless the player turns it on: it listens to their real room,
+        // and that should never be a surprise.
+        public bool micAttractsMonster;
+        public float micSensitivity = 0.5f;
+
         // The file can be hand-edited or written by an older build, so never
         // trust what comes back off disk.
         public void Clamp()
@@ -24,6 +29,7 @@ namespace FearMe.Settings
             ambientVolume = Mathf.Clamp01(ambientVolume);
             sfxVolume = Mathf.Clamp01(sfxVolume);
             mouseSensitivity = Mathf.Clamp(mouseSensitivity, 0.02f, 0.6f);
+            micSensitivity = Mathf.Clamp01(micSensitivity);
 
             playerName = string.IsNullOrWhiteSpace(playerName) ? "PLAYER" : playerName.Trim();
             if (playerName.Length > 16) playerName = playerName.Substring(0, 16);
