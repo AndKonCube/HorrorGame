@@ -457,6 +457,10 @@ namespace FearMe.EditorTools
 
             // Being caught downs this player rather than ending the run.
             player.AddComponent<PlayerVitals>();
+            player.AddComponent<PlayerHands>();
+            player.AddComponent<MicrophoneNoise>();
+            player.AddComponent<PlayerSanity>();
+            player.AddComponent<FearMe.Scares.HallucinationDirector>();
 
             return player;
         }

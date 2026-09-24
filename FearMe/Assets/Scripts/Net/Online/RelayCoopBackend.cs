@@ -23,6 +23,7 @@ namespace FearMe.Net.Online
     {
         private const string NameKey = "name";
         private const string ReadyKey = "ready";
+        private const string HostKey = "host";
 
         // Built by Tools/FearMe/Co-op/Set Up Co-op.
         private const string NetworkPrefabPath = "Coop/CoopNetwork";
@@ -152,7 +153,10 @@ namespace FearMe.Net.Online
             session.CurrentPlayer.SetProperties(new Dictionary<string, PlayerProperty>
             {
                 { NameKey, new PlayerProperty(GameSettingsService.Current.playerName, VisibilityPropertyOptions.Member) },
-                { ReadyKey, new PlayerProperty(ready ? "1" : "0", VisibilityPropertyOptions.Member) }
+                { ReadyKey, new PlayerProperty(ready ? "1" : "0", VisibilityPropertyOptions.Member) },
+                // Each player says whether they host, so the lobby never has
+                // to match ids against the session's own host field.
+                { HostKey, new PlayerProperty(session.IsHost ? "1" : "0", VisibilityPropertyOptions.Member) }
             });
 
             await session.SaveCurrentPlayerDataAsync();
@@ -248,7 +252,7 @@ namespace FearMe.Net.Online
 
             foreach (IReadOnlyPlayer player in session.Players)
             {
-                bool isHost = player.Id == session.Host;
+                bool isHost = Property(player, HostKey, "0") == "1";
 
                 members.Add(new SessionMember
                 {

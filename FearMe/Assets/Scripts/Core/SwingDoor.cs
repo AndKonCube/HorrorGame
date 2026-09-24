@@ -28,6 +28,7 @@ namespace FearMe.Core
 
         private enum Remote { Ease = 0, Slam = 1 }
 
+        private Quaternion restRotation;
         private float angle;
         private float target;
         private float easeGoal;
@@ -50,6 +51,9 @@ namespace FearMe.Core
         {
             if (hinge == null) hinge = transform;
             if (audioSource == null) audioSource = GetComponent<AudioSource>();
+
+            // Turns relative to how it was placed, not to world north.
+            restRotation = hinge.localRotation;
         }
 
         private void OnEnable()
@@ -94,7 +98,7 @@ namespace FearMe.Core
             wasHeld = held;
 
             if (slamming) TickSlam();
-            hinge.localRotation = Quaternion.Euler(0f, angle, 0f);
+            hinge.localRotation = restRotation * Quaternion.Euler(0f, angle, 0f);
         }
 
         private void Ease()

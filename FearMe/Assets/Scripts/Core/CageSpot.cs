@@ -40,6 +40,7 @@ namespace FearMe.Core
         private float nextNoise;
         private int anchorId;
         private float doorAngle;
+        private Quaternion doorRest;
 
         public static IReadOnlyList<CageSpot> All => all;
 
@@ -76,6 +77,7 @@ namespace FearMe.Core
             // Registered for the object's whole life, not just while enabled,
             // so a caught player can always be pointed back at it.
             anchorId = PropSync.Register(this, (state, value) => { });
+            if (door != null) doorRest = door.localRotation;
         }
 
         private void OnDestroy()
@@ -156,7 +158,7 @@ namespace FearMe.Core
 
             float target = IsOccupied ? 0f : doorOpenAngle;
             doorAngle = Mathf.MoveTowards(doorAngle, target, 240f * Time.deltaTime);
-            door.localRotation = Quaternion.Euler(0f, doorAngle, 0f);
+            door.localRotation = doorRest * Quaternion.Euler(0f, doorAngle, 0f);
         }
 
         private void OnDrawGizmos()
