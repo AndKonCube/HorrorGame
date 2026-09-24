@@ -33,6 +33,10 @@ namespace FearMe.Scares
         [SerializeField] private float threatRadius = 22f;
         [SerializeField] private float tensionRise = 0.8f;
         [SerializeField] private float tensionFall = 0.12f;
+        [Tooltip("Vertical gap, in metres, still counted as the same storey.")]
+        [SerializeField] private float sameStoreyGap = 2f;
+        [Tooltip("Vertical gap at which the stalker counts as being on another storey entirely.")]
+        [SerializeField] private float otherStoreyGap = 3.2f;
 
         public float Tension { get; private set; }
 
@@ -82,9 +86,26 @@ namespace FearMe.Scares
             PlayerController subject = Subject;
             if (stalker != null && subject != null)
             {
-                float distance = Vector3.Distance(stalker.position, subject.transform.position);
-                if (distance < threatRadius)
-                    threat = 1f - (distance / threatRadius);
+                Vector3 delta = stalker.position - subject.transform.position;
+
+                // Storeys are only 4.5m apart, so a straight-line distance reads
+                // the stalker pacing the floor above as almost on top of the
+                // player. Measure across the floor instead, and fade the threat
+                // out over the vertical gap.
+                //
+                // The gap is never zero: the agent's pivot rides 1m above the
+                // player's, so same storey is ~1m and the closest a different
+                // storey can get is ~3.5m. It sweeps smoothly between the two
+                // while either of them is on the stairs.
+                float fadeEnd = Mathf.Max(otherStoreyGap, sameStoreyGap + 0.01f);
+                float sameStorey = 1f - Mathf.InverseLerp(sameStoreyGap, fadeEnd, Mathf.Abs(delta.y));
+
+                if (sameStorey > 0f)
+                {
+                    float distance = new Vector2(delta.x, delta.z).magnitude;
+                    if (distance < threatRadius)
+                        threat = (1f - (distance / threatRadius)) * sameStorey;
+                }
             }
 
             if (threat > 0f)

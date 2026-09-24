@@ -86,6 +86,9 @@ namespace FearMe.EditorTools
             Transform level = BuildLevel(levelLayer, floorMat, wallMat, doorMat, propMat);
             BuildCeilingLights(level);
 
+            // Moon, treeline and horizon, so windows have something to look at.
+            ExteriorBuilder.Build(HalfWidth, HalfDepth);
+
             GameObject player = BuildPlayer(new Vector3(0f, 0.1f, -27f));
             PatrolRoute route = BuildPatrolRoute();
             EnemyStalkerAI enemy = BuildEnemy(enemyMat, player.GetComponent<PlayerController>(), route, levelMask, new Vector3(25f, 1f, 20f));
@@ -530,6 +533,66 @@ namespace FearMe.EditorTools
             SetFloatField(ai, "catchDistance", 2f);
 
             return ai;
+        }
+
+        internal static GameObject BuildManagers(GameObject player, EnemyStalkerAI enemy)
+        {
+            GameObject managers = new GameObject("GameManager");
+
+            ObjectiveTracker objectives = managers.AddComponent<ObjectiveTracker>();
+            SetIntField(objectives, "keysRequired", 3);
+
+            GameObject canvasGO = new GameObject("FadeCanvas");
+            canvasGO.transform.SetParent(managers.transform, false);
+            Canvas canvas = canvasGO.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
+            canvasGO.AddComponent<CanvasScaler>();
+            CanvasGroup group = canvasGO.AddComponent<CanvasGroup>();
+            group.alpha = 0f;
+            group.blocksRaycasts = false;
+            group.interactable = false;
+
+            GameObject fadeGO = new GameObject("FadeImage");
+            fadeGO.transform.SetParent(canvasGO.transform, false);
+            Image image = fadeGO.AddComponent<Image>();
+            image.color = Color.black;
+            RectTransform rect = image.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            AudioSource stinger = managers.AddComponent<AudioSource>();
+            stinger.playOnAwake = false;
+            managers.AddComponent<AudioCategoryVolume>(); // SFX slider reaches the sting
+
+            GameOverController flow = managers.AddComponent<GameOverController>();
+            SetObjectField(flow, "fadeCanvasGroup", group);
+            SetObjectField(flow, "jumpscareAudio", stinger);
+            SetObjectField(flow, "playerInputToDisable", player.GetComponent<PlayerInput>());
+
+            DemoHUD hud = managers.AddComponent<DemoHUD>();
+            SetObjectField(hud, "objectives", objectives);
+            SetObjectField(hud, "interactor", player.GetComponent<PlayerInteractor>());
+            SetObjectField(hud, "gameFlow", flow);
+
+            if (enemy.onPlayerCaught == null)
+                enemy.onPlayerCaught = new UnityEngine.Events.UnityEvent();
+            UnityEventTools.AddPersistentListener(enemy.onPlayerCaught, flow.OnPlayerCaught);
+
+            return managers;
+        }
+
+        internal static void BuildFog(GameObject managers, Transform followTarget)
+        {
+            Material hazeMat = GetOrCreateHazeMaterial(GetOrCreateSoftParticleTexture());
+            ParticleSystem haze = BuildGroundHaze(hazeMat);
+
+            VolumetricFogController fog = managers.AddComponent<VolumetricFogController>();
+            SetFogProfile(fog, "baseProfile", "Corridors", 0.045f, new Color(0.03f, 0.035f, 0.04f), 14f, 1.5f);
+            SetObjectField(fog, "followTarget", followTarget);
+            SetObjectField(fog, "hazeParticles", haze);
         }
 
         private static ParticleSystem BuildGroundHaze(Material hazeMat)
