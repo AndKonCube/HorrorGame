@@ -32,6 +32,10 @@ namespace FearMe.Net.Online
         [SerializeField] private float reviveRangeSlack = 1.5f;
 
         [Header("How a teammate looks")]
+        [Tooltip("Drag a character model here to show it instead of the stand-in capsule. " +
+            "It is scaled to Character Height and stood on the floor automatically.")]
+        [SerializeField] private GameObject characterModel;
+        [SerializeField] private float characterHeight = 1.8f;
         [Tooltip("Light enough to read in a dark corridor.")]
         [SerializeField] private Color bodyTint = new Color(0.6f, 0.56f, 0.5f);
         [Tooltip("A faint warm glow on them, so you can find each other in the dark.")]
@@ -230,7 +234,17 @@ namespace FearMe.Net.Online
         // lamp on them and a place for their hands.
         private void DressTeammate()
         {
-            Renderer bodyRenderer = body != null ? body.GetComponent<Renderer>() : null;
+            // A real character, if one has been given: in place of the capsule.
+            if (characterModel != null && transform.Find("Character") == null)
+            {
+                GameObject character = Instantiate(characterModel, transform);
+                character.name = "Character";
+                foreach (Collider c in character.GetComponentsInChildren<Collider>()) Destroy(c);
+                FitToHeight(character.transform, characterHeight);
+                if (body != null) body.SetActive(false);
+            }
+
+            Renderer bodyRenderer = body != null && body.activeSelf ? body.GetComponent<Renderer>() : null;
             if (bodyRenderer != null)
             {
                 // An instanced material rather than a property block, so the
@@ -274,6 +288,24 @@ namespace FearMe.Net.Online
                 hand.localPosition = new Vector3(0.32f, 1.05f, 0.42f);
             }
             avatar.HandAnchor = hand;
+        }
+
+        // Whatever size the model was made at, it ends up this tall with its
+        // feet on the floor under the player.
+        private void FitToHeight(Transform model, float height)
+        {
+            Renderer[] renderers = model.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return;
+
+            Bounds bounds = renderers[0].bounds;
+            foreach (Renderer r in renderers) bounds.Encapsulate(r.bounds);
+            if (bounds.size.y < 0.01f) return;
+
+            model.localScale *= height / bounds.size.y;
+
+            bounds = renderers[0].bounds;
+            foreach (Renderer r in renderers) bounds.Encapsulate(r.bounds);
+            model.position += Vector3.up * (transform.position.y - bounds.min.y);
         }
 
         private void MirrorRemoteState()

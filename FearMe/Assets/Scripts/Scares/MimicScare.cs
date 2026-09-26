@@ -179,10 +179,13 @@ namespace FearMe.Scares
             GameObject source = mimicBody;
             PlayerController partner = Partner();
 
+            // The teammate's real character if they have one, else their capsule.
+            Transform partnerLook = null;
             if (source == null && partner != null)
             {
-                Transform partnerBody = partner.transform.Find("Body");
-                if (partnerBody != null) source = partnerBody.gameObject;
+                partnerLook = partner.transform.Find("Character");
+                if (partnerLook == null) partnerLook = partner.transform.Find("Body");
+                if (partnerLook != null) source = partnerLook.gameObject;
             }
 
             GameObject body;
@@ -204,10 +207,11 @@ namespace FearMe.Scares
             // A figure, not an obstacle: nothing to bump into or aim at.
             foreach (Collider c in body.GetComponentsInChildren<Collider>()) Destroy(c);
 
-            // A capsule's pivot is its middle; stand it on the floor.
+            // Stood where it stands on the real teammate: a capsule's pivot is
+            // its middle, a fitted character's offset was worked out already.
             GameObject root = new GameObject("MimicRoot");
             body.transform.SetParent(root.transform, true);
-            body.transform.localPosition = new Vector3(0f, 0.9f, 0f);
+            body.transform.localPosition = partnerLook != null ? partnerLook.localPosition : new Vector3(0f, 0.9f, 0f);
             body.transform.localRotation = Quaternion.identity;
 
             torch = BuildTorch(root.transform);
