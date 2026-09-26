@@ -334,9 +334,38 @@ namespace FearMe.Core
                 level > 0.6f ? "IT CAN HEAR YOU" : "your voice carries", voice);
         }
 
+        private bool showCoopDebug;
+
+        private void Update()
+        {
+            UnityEngine.InputSystem.Keyboard keyboard = UnityEngine.InputSystem.Keyboard.current;
+            if (keyboard != null && keyboard.f3Key.wasPressedThisFrame) showCoopDebug = !showCoopDebug;
+        }
+
+        // F3: what the co-op layer thinks is going on, for a screenshot that
+        // says exactly where something is breaking.
+        private void DrawCoopDebug()
+        {
+            if (!showCoopDebug) return;
+
+            string report = FearMe.Net.CoopDebug.Report != null
+                ? FearMe.Net.CoopDebug.Report()
+                : "CO-OP: no session running (solo, or the host has not started the level yet)";
+
+            GUIStyle style = new GUIStyle(textStyle) { fontSize = 14, wordWrap = true };
+            style.normal.textColor = new Color(0.6f, 1f, 0.6f);
+
+            Rect area = new Rect(Screen.width - 620f, 20f, 600f, 300f);
+            GUI.color = new Color(0f, 0f, 0f, 0.7f);
+            GUI.DrawTexture(area, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(area.x + 10f, area.y + 8f, area.width - 20f, area.height - 16f), report, style);
+        }
+
         private void OnGUI()
         {
             BuildStyles();
+            DrawCoopDebug();
 
             if (gameFlow != null && gameFlow.IsFinished)
             {

@@ -43,6 +43,9 @@ namespace FearMe.AI
         [SerializeField] private float loseSightGrace = 1.5f;
         [SerializeField] private float searchDuration = 6f;
         [SerializeField] private float catchDistance = 1.0f;
+        [Tooltip("Anyone who ends up this close is grabbed, whatever it was doing - " +
+            "walking into the demon is being caught, not being bumped about.")]
+        [SerializeField] private float grabDistance = 1.3f;
         [Tooltip("Give up on a waypoint after this long and move to the next.")]
         [SerializeField] private float waypointTimeout = 12f;
 
@@ -111,6 +114,11 @@ namespace FearMe.AI
         public int Level { get; private set; }
         public bool IsBanished => state == State.Banished;
         public float SniffRange => sniffRange;
+        public string StateName => enabled ? state.ToString() : "mirrored";
+
+        private bool solid = true;
+        private bool banishedLook;
+        private float grabAllowedAt;
 
         public int AnchorId => anchorId;
         public Transform HoldPoint => grip;
@@ -224,6 +232,9 @@ namespace FearMe.AI
                 else TickDrag();
                 return;
             }
+
+            // Walked into it, or it into you: caught.
+            if (TryGrabOnContact()) return;
 
             PlayerController seen = FindVisiblePlayer();
             PlayerController heard = seen == null ? FindAudiblePlayer() : seen;
@@ -540,6 +551,30 @@ namespace FearMe.AI
             }
         }
 
+        // Contact is capture. Without this a player standing beside or behind
+        // it - outside its view cone, or while it was searching - was just
+        // shoved about by it instead of taken.
+        private bool TryGrabOnContact()
+        {
+            if (Time.time < grabAllowedAt) return false;
+
+            foreach (PlayerController candidate in Targets())
+            {
+                if (candidate.IsHidden) continue;
+
+                Vector3 offset = candidate.transform.position - transform.position;
+                if (Mathf.Abs(offset.y) > hearingFloorGap) continue;
+                offset.y = 0f;
+                if (offset.magnitude > Mathf.Max(grabDistance, catchDistance)) continue;
+
+                quarry = candidate;
+                lastKnownPosition = candidate.transform.position;
+                Seize(candidate);
+                return true;
+            }
+            return false;
+        }
+
         // --- Hidden players ---------------------------------------------------
 
         // Someone hidden close by and still breathing slowly gives themselves
@@ -645,10 +680,25 @@ namespace FearMe.AI
         // hit or bump into.
         public void SetBanishedVisual(bool banished)
         {
+            banishedLook = banished;
             if (bodyRenderers != null)
                 foreach (Renderer r in bodyRenderers) if (r != null) r.enabled = !banished;
-            if (bodyColliders != null)
-                foreach (Collider c in bodyColliders) if (c != null) c.enabled = !banished;
+            ApplyColliders();
+        }
+
+        // A guest's copy only mirrors the host's, a moment behind; if it were
+        // solid it would shove the guest about. Catching happens on the host.
+        public void SetSolid(bool value)
+        {
+            solid = value;
+            ApplyColliders();
+        }
+
+        private void ApplyColliders()
+        {
+            if (bodyColliders == null) return;
+            foreach (Collider c in bodyColliders)
+                if (c != null && !c.isTrigger) c.enabled = solid && !banishedLook;
         }
 
         // --- Buddy breakout ------------------------------------------------------
@@ -694,6 +744,7 @@ namespace FearMe.AI
             dragTo = null;
 
             caged.SetCaptivity(Captivity.Caged, cage);
+            grabAllowedAt = Time.time + 2f;
 
             // It stays in the area. Coming back for them is the risk.
             lastKnownPosition = cage.transform.position;
@@ -729,6 +780,10 @@ namespace FearMe.AI
 
             state = State.Stunned;
             stunTimer = seconds;
+
+            // A moment's grace once it comes round, so whoever just saved
+            // their partner is not grabbed the instant it wakes.
+            grabAllowedAt = Time.time + seconds + 2f;
             lastKnownPosition = transform.position;
 
             if (agent.isOnNavMesh)

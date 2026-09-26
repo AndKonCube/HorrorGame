@@ -32,6 +32,8 @@ namespace FearMe.Net.Online
     // hand. With no session running it never exists at all.
     public class NetworkRunState : NetworkBehaviour
     {
+        public static NetworkRunState Instance { get; private set; }
+
         [SerializeField] private NetworkObject playerProxyPrefab;
 
         private readonly NetworkVariable<int> seed = new NetworkVariable<int>();
@@ -58,6 +60,8 @@ namespace FearMe.Net.Online
 
         public override void OnNetworkSpawn()
         {
+            Instance = this;
+            CoopDebug.Report = BuildReport;
             BindStalkers();
 
             if (IsServer) levelFingerprint.Value = LevelFingerprint();
@@ -129,6 +133,9 @@ namespace FearMe.Net.Online
 
         public override void OnNetworkDespawn()
         {
+            if (Instance == this) Instance = null;
+            CoopDebug.Report = null;
+
             takenKeys.OnListChanged -= OnKeysChanged;
             run.OnValueChanged -= OnRunChanged;
             if (director != null) director.Changed -= PushRun;
@@ -234,12 +241,15 @@ namespace FearMe.Net.Online
                 return;
             }
 
-            // A guest's copy only shows where the host's is.
+            // A guest's copy only shows where the host's is - and is not solid,
+            // so a copy running a moment behind cannot shove the guest about.
+            // Being caught is decided on the host.
             foreach (EnemyStalkerAI stalker in stalkers)
             {
                 stalker.enabled = false;
                 NavMeshAgent agent = stalker.GetComponent<NavMeshAgent>();
                 if (agent != null) agent.enabled = false;
+                stalker.SetSolid(false);
             }
         }
 
@@ -361,6 +371,69 @@ namespace FearMe.Net.Online
         {
             if (ObjectiveTracker.Instance != null)
                 ObjectiveTracker.Instance.SetKeysCollected(takenKeys.Count);
+        }
+
+        // --- Player poses -------------------------------------------------------
+
+        // Each player's position, look and stance, streamed to the other a
+        // dozen-plus times a second through this object - the same channel
+        // the door and lever messages use.
+        public void SendPose(ulong owner, Vector3 position, float yaw, float pitch, byte flags)
+        {
+            PoseRpc(owner, position, yaw, pitch, flags);
+        }
+
+        [Rpc(SendTo.NotMe, RequireOwnership = false, Delivery = RpcDelivery.Unreliable)]
+        private void PoseRpc(ulong owner, Vector3 position, float yaw, float pitch, byte flags)
+        {
+            NetworkPlayer player = NetworkPlayer.ForOwner(owner);
+            if (player != null) player.ApplyPose(position, yaw, pitch, flags);
+            posesReceived++;
+        }
+
+        private int posesReceived;
+
+        public void BroadcastVitals(ulong owner, bool isDown, bool isDead, float remaining, int hold, int anchor)
+        {
+            VitalsRpc(owner, isDown, isDead, remaining, hold, anchor);
+        }
+
+        [Rpc(SendTo.NotServer)]
+        private void VitalsRpc(ulong owner, bool isDown, bool isDead, float remaining, int hold, int anchor)
+        {
+            NetworkPlayer player = NetworkPlayer.ForOwner(owner);
+            if (player != null) player.ApplyVitalsFromHost(isDown, isDead, remaining, hold, anchor);
+        }
+
+        // --- Co-op overlay (F3) ------------------------------------------------------
+
+        private string BuildReport()
+        {
+            StringBuilder report = new StringBuilder();
+            report.AppendLine($"CO-OP  role: {(IsServer ? "HOST" : "GUEST")}   my id: {NetworkManager.LocalClientId}   " +
+                              $"level match: {(CoopSession.LevelMismatch ? "NO" : "yes")}");
+            if (IsServer) report.AppendLine("connected players: " + NetworkManager.ConnectedClientsIds.Count);
+            report.AppendLine($"poses received: {posesReceived}   players registered here: {PlayerRegistry.All.Count}");
+
+            foreach (NetworkPlayer player in NetworkPlayer.All)
+            {
+                if (player == null) continue;
+                PlayerVitals vitals = player.GetComponent<PlayerVitals>();
+                string pose = player.IsOwner ? "mine (hidden)" :
+                    $"at {player.transform.position:F1}  reported {player.ReportedPosition:F1}  " +
+                    $"last pose {Mathf.Min(player.SecondsSincePose, 99f):F1}s ago  body {(player.HasFigure ? "built" : "MISSING")}";
+                string state = vitals == null ? "" : vitals.IsDead ? "  DEAD" : vitals.IsDown ? $"  DOWN ({vitals.Captivity})" : "";
+                report.AppendLine($"  player {player.OwnerClientId}: {pose}{state}");
+            }
+
+            foreach (EnemyStalkerAI stalker in stalkers)
+            {
+                if (stalker == null) continue;
+                report.AppendLine($"  demon: {stalker.StateName}  at {stalker.transform.position:F1}" +
+                                  (IsServer ? "" : "  (following the host)"));
+            }
+
+            return report.ToString();
         }
 
         // --- Props ---------------------------------------------------------------

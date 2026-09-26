@@ -99,6 +99,21 @@ namespace FearMe.Net.Online
 
         private float serverBleedOut;
 
+        // The same pose, also streamed through the run state's messages - the
+        // channel levers and doors already prove works. Whichever arrived
+        // last wins; the network variables stay as a backup.
+        private const byte FlagCrouch = 1, FlagTorch = 2, FlagHidden = 4, FlagBreath = 8, FlagPeek = 16;
+        private Vector3 streamedPosition;
+        private float streamedYaw, streamedPitch;
+        private byte streamedFlags;
+        private float lastStreamed = -100f;
+        private float nextStream;
+        private bool hasPosition;
+
+        public float SecondsSincePose => Time.unscaledTime - lastStreamed;
+        public bool HasFigure => figure != null;
+        public Vector3 ReportedPosition => Time.unscaledTime - lastStreamed < 1f ? streamedPosition : netPosition.Value;
+
         public static IReadOnlyList<NetworkPlayer> All => all;
 
         private void Awake()
@@ -219,6 +234,18 @@ namespace FearMe.Net.Online
             if ((netPosition.Value - position).sqrMagnitude > 0.0004f) netPosition.Value = position;
             if (Mathf.Abs(Mathf.DeltaAngle(netYaw.Value, yaw)) > 0.5f) netYaw.Value = yaw;
 
+            if (Time.unscaledTime >= nextStream && NetworkRunState.Instance != null)
+            {
+                nextStream = Time.unscaledTime + 1f / 15f;
+                byte flags = 0;
+                if (local.IsCrouching) flags |= FlagCrouch;
+                if (localTorch != null && localTorch.IsOn) flags |= FlagTorch;
+                if (local.IsHidden) flags |= FlagHidden;
+                if (local.HoldingBreath) flags |= FlagBreath;
+                if (local.IsPeeking) flags |= FlagPeek;
+                NetworkRunState.Instance.SendPose(OwnerClientId, position, yaw, local.LookPitch, flags);
+            }
+
             bool torch = localTorch != null && localTorch.IsOn;
             if (torchOn.Value != torch) torchOn.Value = torch;
 
@@ -326,37 +353,74 @@ namespace FearMe.Net.Online
             model.position += Vector3.up * (transform.position.y - bounds.min.y);
         }
 
+        // The owner's pose, streamed through the run state.
+        public void ApplyPose(Vector3 position, float yaw, float pitch, byte flags)
+        {
+            if (IsOwner) return;
+
+            streamedPosition = position;
+            streamedYaw = yaw;
+            streamedPitch = pitch;
+            streamedFlags = flags;
+            lastStreamed = Time.unscaledTime;
+
+            // First word of where they are: be there, rather than glide over.
+            if (!hasPosition)
+            {
+                hasPosition = true;
+                transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+            }
+        }
+
         private void MirrorRemoteState()
         {
             avatar.DisplayName = displayName.Value.ToString();
 
+            // The freshest word on their pose: the stream if it is live,
+            // the network variables otherwise.
+            bool streaming = Time.unscaledTime - lastStreamed < 1f;
+            Vector3 position = streaming ? streamedPosition : netPosition.Value;
+            float yaw = streaming ? streamedYaw : netYaw.Value;
+            if (!streaming && netPosition.Value != Vector3.zero) hasPosition = true;
+
+            bool crouch = streaming ? (streamedFlags & FlagCrouch) != 0 : crouching.Value;
+            bool torch = streaming ? (streamedFlags & FlagTorch) != 0 : torchOn.Value;
+
             if (figure != null)
             {
-                figure.Crouching = crouching.Value;
-                figure.LookPitch = lookPitch.Value;
-                figure.TorchOn = torchOn.Value;
+                figure.Crouching = crouch;
+                figure.LookPitch = streaming ? streamedPitch : lookPitch.Value;
+                figure.TorchOn = torch;
             }
+            if (torchBeam != null) torchBeam.enabled = torch;
 
-            // Once, if the other machine never says where its player is: the
-            // one thing that makes a teammate invisible no matter what.
-            if (!warnedNoPosition && netPosition.Value == Vector3.zero && Time.unscaledTime - spawnedAt > 5f)
+            // Nothing heard yet: stay where spawned rather than slide off to
+            // the middle of the map.
+            if (!hasPosition)
             {
-                warnedNoPosition = true;
-                Debug.LogWarning("[FearMe] The teammate has not sent a position yet - their game may not have " +
-                    "found its own player. Check their Console for errors.");
+                if (!warnedNoPosition && Time.unscaledTime - spawnedAt > 5f)
+                {
+                    warnedNoPosition = true;
+                    Debug.LogWarning("[FearMe] The teammate has not sent a position in 5 seconds - press F3 on " +
+                        "both machines and compare what the co-op overlay says.");
+                }
             }
-
-            // Updates arrive a few times a tick; ease between them so the
-            // body glides instead of stepping.
-            float ease = 1f - Mathf.Exp(-15f * Time.deltaTime);
-            transform.SetPositionAndRotation(
-                Vector3.Lerp(transform.position, netPosition.Value, ease),
-                Quaternion.Slerp(transform.rotation, Quaternion.Euler(0f, netYaw.Value, 0f), ease));
+            else
+            {
+                // Updates arrive in steps; ease between them so the body glides.
+                float ease = 1f - Mathf.Exp(-15f * Time.deltaTime);
+                if ((transform.position - position).sqrMagnitude > 64f)
+                    transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+                else
+                    transform.SetPositionAndRotation(
+                        Vector3.Lerp(transform.position, position, ease),
+                        Quaternion.Slerp(transform.rotation, Quaternion.Euler(0f, yaw, 0f), ease));
+            }
 
             avatar.RemoteNoiseRadius = noise.Value;
-            avatar.RemoteHidden = hidden.Value;
-            avatar.RemoteHoldingBreath = breathHeld.Value;
-            avatar.RemotePeeking = peeking.Value;
+            avatar.RemoteHidden = streaming ? (streamedFlags & FlagHidden) != 0 : hidden.Value;
+            avatar.RemoteHoldingBreath = streaming ? (streamedFlags & FlagBreath) != 0 : breathHeld.Value;
+            avatar.RemotePeeking = streaming ? (streamedFlags & FlagPeek) != 0 : peeking.Value;
         }
 
         private void TickBleedOut()
@@ -367,13 +431,41 @@ namespace FearMe.Net.Online
 
             // Whole seconds are all the HUD shows, so that is all that is sent.
             float shown = Mathf.Max(0f, Mathf.Ceil(serverBleedOut));
-            if (!Mathf.Approximately(bleedOut.Value, shown)) bleedOut.Value = shown;
+            if (!Mathf.Approximately(bleedOut.Value, shown))
+            {
+                bleedOut.Value = shown;
+                BroadcastVitals();
+            }
 
             if (serverBleedOut <= 0f)
             {
                 captivity.Value = (int)Captivity.None;
                 dead.Value = true;
+                BroadcastVitals();
             }
+        }
+
+        // Also sent as a message through the run state, which is known to get
+        // through, so being downed, dragged and caged always reaches the
+        // player it happens to. Applying the same state twice changes nothing.
+        private void BroadcastVitals()
+        {
+            if (IsServer && NetworkRunState.Instance != null)
+                NetworkRunState.Instance.BroadcastVitals(OwnerClientId, down.Value, dead.Value, bleedOut.Value,
+                    captivity.Value, anchorId.Value);
+        }
+
+        public void ApplyVitalsFromHost(bool isDown, bool isDead, float remaining, int hold, int anchor)
+        {
+            if (IsServer) return;
+
+            if (avatarVitals != null && avatarVitals.enabled) avatarVitals.ApplyNetworkVitals(isDown, isDead, remaining);
+            if (localVitals != null) localVitals.ApplyNetworkVitals(isDown, isDead, remaining);
+
+            Captivity captive = (Captivity)hold;
+            ICaptiveAnchor where = captive == Captivity.None ? null : PropSync.Find<ICaptiveAnchor>(anchor);
+            if (avatarVitals != null && avatarVitals.enabled) avatarVitals.ApplyCaptivity(captive, where);
+            if (localVitals != null) localVitals.ApplyCaptivity(captive, where);
         }
 
         // --- Server authority ------------------------------------------------
@@ -385,6 +477,7 @@ namespace FearMe.Net.Online
             serverBleedOut = avatarVitals != null ? avatarVitals.BleedOutSeconds : 45f;
             bleedOut.Value = serverBleedOut;
             down.Value = true;
+            BroadcastVitals();
         }
 
         [Rpc(SendTo.Server, RequireOwnership = false)]
@@ -407,6 +500,7 @@ namespace FearMe.Net.Online
 
             captivity.Value = (int)Captivity.None;
             down.Value = false;
+            BroadcastVitals();
         }
 
         public void ServerSetCaptivity(int hold, int anchor)
@@ -417,6 +511,7 @@ namespace FearMe.Net.Online
             // to put them.
             anchorId.Value = hold == (int)Captivity.None ? 0 : anchor;
             captivity.Value = hold;
+            BroadcastVitals();
         }
 
         // A guest can only ever let someone go - breaking a cage lock. Being
@@ -483,6 +578,8 @@ namespace FearMe.Net.Online
             }
             return null;
         }
+
+        public static NetworkPlayer ForOwner(ulong clientId) => ForClient(clientId);
 
         private static NetworkPlayer ForClient(ulong clientId)
         {
