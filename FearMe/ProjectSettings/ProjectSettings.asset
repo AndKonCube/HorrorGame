@@ -831,7 +831,7 @@ PlayerSettings:
   webWasm2023: 0
   webEnableSubmoduleStrippingCompatibility: 0
   scriptingDefineSymbols:
-    Standalone: FEARME_COOP_ONLINE
+    Standalone: FEARME_COOP_ONLINE;FEARME_VOICE
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
@@ -930,11 +930,11 @@ PlayerSettings:
   captureStartupLogs: {}
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
-  cloudProjectId: 
+  cloudProjectId: 6c81cf51-ec61-4be2-9e67-0e9d9307e544
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: 
-  organizationId: 
+  projectName: Prototype
+  organizationId: learieme
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}
