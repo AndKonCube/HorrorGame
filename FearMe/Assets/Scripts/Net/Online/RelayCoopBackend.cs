@@ -34,6 +34,24 @@ namespace FearMe.Net.Online
         private bool leaving;
         private bool networkHooked;
 
+        // Stopping play mode or closing the game tears the network down on
+        // its own. Trying to leave the session politely at that point only
+        // leaves the service waiting on a network that is already gone.
+        private static bool quitting;
+
+        static RelayCoopBackend()
+        {
+            Application.quitting += () => quitting = true;
+        }
+
+        // Statics survive between play sessions in the editor when domain
+        // reload is off; start each one fresh.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics()
+        {
+            quitting = false;
+        }
+
         // Relay, sign-in and sessions are all tied to a Unity Cloud project.
         // Without one linked, every request fails, so say so before anyone
         // presses a button rather than after.
@@ -188,15 +206,32 @@ namespace FearMe.Net.Online
                 CoopHooks.Clear();
 
                 ISession closing = session;
-                Detach();
                 session = null;
+                Detach(closing);
 
-                // Networking first and synchronously, so a scene load straight
-                // after this is not fighting a live Netcode scene manager.
+                // The session started the network, so the session stops it.
+                // Shutting Netcode down first left the service waiting on a
+                // shutdown that had already happened, until it timed out.
+                if (closing != null)
+                {
+                    try
+                    {
+                        await closing.LeaveAsync();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The service had already torn it down; nothing to leave.
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning("[FearMe] Leaving the session: " + e.Message);
+                    }
+                }
+
+                // Nothing owns the network any more (or the leave failed):
+                // make sure it is down.
                 NetworkManager network = NetworkManager.Singleton;
-                if (network != null && network.IsListening) network.Shutdown();
-
-                if (closing != null) await closing.LeaveAsync();
+                if (network != null && network.IsListening && !network.ShutdownInProgress) network.Shutdown();
             }
             finally
             {
@@ -254,21 +289,44 @@ namespace FearMe.Net.Online
             session.RemovedFromSession += OnRemoved;
         }
 
-        private void Detach()
+        // Safe on a session the service has already disposed - touching one
+        // of those, even to unsubscribe, throws.
+        private void Detach(ISession target)
         {
-            if (session == null) return;
-            session.Changed -= PushMembers;
-            session.RemovedFromSession -= OnRemoved;
+            if (target == null) return;
+            try
+            {
+                target.Changed -= PushMembers;
+                target.RemovedFromSession -= OnRemoved;
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         private void PushMembers()
         {
             if (session == null) return;
 
+            List<SessionMember> members;
+            try
+            {
+                members = ReadMembers(session);
+            }
+            catch (ObjectDisposedException)
+            {
+                return; // gone between the event and now
+            }
+
+            ReportMembers(members);
+        }
+
+        private static List<SessionMember> ReadMembers(ISession source)
+        {
             string me = AuthenticationService.Instance.PlayerId;
             List<SessionMember> members = new List<SessionMember>();
 
-            foreach (IReadOnlyPlayer player in session.Players)
+            foreach (IReadOnlyPlayer player in source.Players)
             {
                 bool isHost = Property(player, HostKey, "0") == "1";
 
@@ -282,7 +340,7 @@ namespace FearMe.Net.Online
                 });
             }
 
-            ReportMembers(members);
+            return members;
         }
 
         private static string Property(IReadOnlyPlayer player, string key, string fallback)
@@ -296,20 +354,31 @@ namespace FearMe.Net.Online
 
         private void OnRemoved()
         {
-            // Already gone on the service's side; nothing to leave.
-            Detach();
+            if (quitting) return;
+
+            // Already gone on the service's side; nothing to leave, just make
+            // sure the network is down too.
+            ISession gone = session;
             session = null;
+            Detach(gone);
 
             Run(LeaveAsync("The session was closed."), "Couldn't leave cleanly");
             ReturnToMenu();
         }
 
-        // The other end vanished mid-run, or the relay dropped us.
+        // The other end vanished mid-run, or the relay dropped us. The
+        // service tears the session down itself when its network goes, so it
+        // is let go of here rather than left through again.
         private void OnNetworkStopped(bool wasHost)
         {
-            if (leaving || session == null) return;
+            if (leaving || quitting || session == null) return;
 
-            Run(LeaveAsync("Lost the connection."), "Couldn't leave cleanly");
+            ISession gone = session;
+            session = null;
+            Detach(gone);
+
+            CoopHooks.Clear();
+            Report(SessionState.Offline, "Lost the connection.");
             ReturnToMenu();
         }
 
@@ -358,8 +427,9 @@ namespace FearMe.Net.Online
 
                 // Never leave a half-open connection behind a failure.
                 CoopHooks.Clear();
-                Detach();
+                ISession failed = session;
                 session = null;
+                Detach(failed);
 
                 NetworkManager network = NetworkManager.Singleton;
                 if (network != null && network.IsListening) network.Shutdown();

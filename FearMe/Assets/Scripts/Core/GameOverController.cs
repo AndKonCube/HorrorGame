@@ -80,6 +80,7 @@ namespace FearMe.Core
 
             // Held on black while the HUD shows the thank-you card.
             yield return new WaitForSeconds(thankYouDuration);
+            yield return LeaveSession();
             LoadMenu();
         }
 
@@ -104,12 +105,22 @@ namespace FearMe.Core
             Cursor.visible = true;
         }
 
-        private void LoadMenu()
+        // The run is over for both players: leave the session and let its
+        // network shut down before the menu loads, so the two never overlap.
+        // Capped, so a slow service cannot strand anyone on a black screen.
+        private static IEnumerator LeaveSession()
         {
-            // The run is over for both players; drop the session before the
-            // menu loads, so it is not left running behind the lobby.
+            if (CoopSession.State == SessionState.Offline) yield break;
+
             CoopSession.Leave();
 
+            float giveUpAt = Time.unscaledTime + 6f;
+            while (CoopSession.State != SessionState.Offline && Time.unscaledTime < giveUpAt)
+                yield return null;
+        }
+
+        private void LoadMenu()
+        {
             // A scene missing from the build list would hard-fail, so check first.
             if (!string.IsNullOrEmpty(menuSceneName) && Application.CanStreamedLevelBeLoaded(menuSceneName))
             {
