@@ -34,12 +34,23 @@ namespace FearMe.Net.Online
         private bool leaving;
         private bool networkHooked;
 
-        public override bool IsAvailable => true;
-        public override string UnavailableReason => string.Empty;
+        // Relay, sign-in and sessions are all tied to a Unity Cloud project.
+        // Without one linked, every request fails, so say so before anyone
+        // presses a button rather than after.
+        public override bool IsAvailable => !string.IsNullOrEmpty(Application.cloudProjectId);
+
+        public override string UnavailableReason =>
+            "This project isn't linked to Unity Cloud, so online co-op can't start. In the editor: " +
+            "Edit > Project Settings > Services, link (or create) a project, then save and try again.";
 
         public override void Host(int maxPlayers)
         {
             if (busy || session != null) return;
+            if (!IsAvailable)
+            {
+                Report(SessionState.Offline, UnavailableReason);
+                return;
+            }
             Run(HostAsync(maxPlayers), "Couldn't host");
         }
 
@@ -50,6 +61,12 @@ namespace FearMe.Net.Online
             if (string.IsNullOrEmpty(joinCode))
             {
                 Report(SessionState.Offline, "Type the host's join code first.");
+                return;
+            }
+
+            if (!IsAvailable)
+            {
+                Report(SessionState.Offline, UnavailableReason);
                 return;
             }
 
@@ -306,6 +323,24 @@ namespace FearMe.Net.Online
 
         // --- Plumbing ---------------------------------------------------------------
 
+        // The error text from the services is accurate but terse; this says
+        // what to actually go and check.
+        private static string Hint(Exception e)
+        {
+            if (e is ServicesInitializationException)
+                return " Link a Unity Cloud project under Edit > Project Settings > Services.";
+
+            if (e is AuthenticationException)
+                return " Signing in failed - check the internet connection, and that the project is linked " +
+                       "under Edit > Project Settings > Services.";
+
+            if (e is RequestFailedException)
+                return " The service refused the request - check the internet connection, and for a join, " +
+                       "that the code is right and the host is still in the lobby.";
+
+            return string.Empty;
+        }
+
         // Async work started from a button: errors land in the lobby's status
         // line instead of vanishing into an unobserved task.
         private async void Run(Task work, string failure)
@@ -319,9 +354,7 @@ namespace FearMe.Net.Online
             {
                 Debug.LogException(e);
 
-                string hint = e is ServicesInitializationException
-                    ? " Link a Unity Cloud project under Edit > Project Settings > Services."
-                    : string.Empty;
+                string hint = Hint(e);
 
                 // Never leave a half-open connection behind a failure.
                 CoopHooks.Clear();
