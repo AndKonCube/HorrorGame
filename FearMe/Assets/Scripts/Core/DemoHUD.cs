@@ -344,6 +344,15 @@ namespace FearMe.Core
                 return;
             }
 
+            if (FearMe.Net.CoopSession.LevelMismatch)
+            {
+                GUIStyle warn = new GUIStyle(centerStyle) { fontSize = 18, wordWrap = true };
+                warn.normal.textColor = new Color(0.9f, 0.25f, 0.2f);
+                GUI.Label(new Rect(Screen.width * 0.1f, Screen.height - 150f, Screen.width * 0.8f, 50f),
+                    "Your level and your partner's are different versions - doors, items and keys won't line up.\n" +
+                    "Save the scene, make ONE new build, and both play that same build.", warn);
+            }
+
             if (SpawnDirector.Instance != null)
             {
                 DrawRun(SpawnDirector.Instance);

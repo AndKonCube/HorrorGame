@@ -91,10 +91,10 @@ namespace FearMe.Core
             if (demon == null) demon = FindFirstObjectByType<EnemyStalkerAI>();
             if (objectives == null) objectives = FindFirstObjectByType<ObjectiveTracker>();
 
-            // Same scene on both machines, sorted the same way: a spot's index
-            // means the same place everywhere.
+            // Sorted by where they stand, which both machines read from the
+            // same saved level: a spot's index means the same place everywhere.
             spots.AddRange(FindObjectsByType<SpawnSpot>(FindObjectsSortMode.None));
-            spots.Sort((a, b) => string.CompareOrdinal(PathOf(a.transform), PathOf(b.transform)));
+            spots.Sort((a, b) => string.CompareOrdinal(PlaceOf(a.transform), PlaceOf(b.transform)));
         }
 
         private void OnDestroy()
@@ -497,12 +497,28 @@ namespace FearMe.Core
             if (clip != null) AudioSource.PlayClipAtPoint(clip, position);
         }
 
-        private static string PathOf(Transform t)
+        // Position to the centimetre, then name: the same on every machine
+        // running the same level, however its hierarchy happens to be ordered.
+        public static string PlaceOf(Transform t)
         {
-            StringBuilder path = new StringBuilder();
-            for (Transform node = t; node != null; node = node.parent)
-                path.Insert(0, "/" + node.GetSiblingIndex().ToString("D4"));
-            return path.ToString();
+            Vector3Int cm = Vector3Int.RoundToInt(t.position * 100f);
+            return $"{cm.x:D9}|{cm.y:D9}|{cm.z:D9}|{t.name}";
+        }
+
+        // The spawn spots as one number, for telling whether two machines are
+        // on the same version of the level.
+        public int SpotFingerprint
+        {
+            get
+            {
+                unchecked
+                {
+                    int sum = spots.Count;
+                    foreach (SpawnSpot spot in spots)
+                        if (spot != null) sum = sum * 31 + PropSync.Hash(PlaceOf(spot.transform));
+                    return sum;
+                }
+            }
         }
     }
 }

@@ -36,6 +36,12 @@ namespace FearMe.Net.Online
 
         private readonly NetworkVariable<int> seed = new NetworkVariable<int>();
 
+        // The host's level, as one number. A guest on a different version of
+        // it - an unsaved edit in the editor against a build, or two builds
+        // made at different times - would see doors, items and keys silently
+        // fail to line up; this makes that loud instead.
+        private readonly NetworkVariable<int> levelFingerprint = new NetworkVariable<int>();
+
         // The whole run's progress - keys, pages, zones, banishment, bolts -
         // written by the host's run director, rendered by the guest's.
         private readonly NetworkVariable<RunSnapshotNet> run = new NetworkVariable<RunSnapshotNet>();
@@ -53,6 +59,13 @@ namespace FearMe.Net.Online
         public override void OnNetworkSpawn()
         {
             BindStalkers();
+
+            if (IsServer) levelFingerprint.Value = LevelFingerprint();
+            else
+            {
+                levelFingerprint.OnValueChanged += OnLevelFingerprint;
+                CheckLevel(levelFingerprint.Value);
+            }
 
             // Before the seed: the run director reads who decides as soon as
             // the seed appears.
@@ -173,6 +186,34 @@ namespace FearMe.Net.Online
             };
         }
 
+        // --- Same level on both machines? -------------------------------------------
+
+        private static int LevelFingerprint()
+        {
+            SpawnDirector director = SpawnDirector.Instance;
+            return PropSync.Fingerprint() ^ (director != null ? director.SpotFingerprint : 0);
+        }
+
+        private void OnLevelFingerprint(int previous, int current) => CheckLevel(current);
+
+        private void CheckLevel(int hosts)
+        {
+            if (hosts == 0 || hosts == LevelFingerprint()) return;
+
+            CoopSession.ReportLevelMismatch();
+            ReportMismatchRpc();
+            Debug.LogError("[FearMe] This level does not match the host's. Doors, items, keys and pages will not " +
+                "line up between you. Save the scene, make one new build, and both play that same build.");
+        }
+
+        // So the host sees the warning too.
+        [Rpc(SendTo.Server, RequireOwnership = false)]
+        private void ReportMismatchRpc()
+        {
+            CoopSession.ReportLevelMismatch();
+            Debug.LogError("[FearMe] Your partner's level does not match yours - make one new build and both play it.");
+        }
+
         // --- The stalker ----------------------------------------------------------
 
         // Every stalker in the level, in an order both machines agree on. One
@@ -184,7 +225,7 @@ namespace FearMe.Net.Online
             {
                 if (stalker.GetComponent<NetworkObject>() == null) stalkers.Add(stalker);
             }
-            stalkers.Sort((a, b) => string.CompareOrdinal(PathOf(a.transform), PathOf(b.transform)));
+            stalkers.Sort((a, b) => string.CompareOrdinal(SpawnDirector.PlaceOf(a.transform), SpawnDirector.PlaceOf(b.transform)));
 
             if (IsServer)
             {
@@ -252,13 +293,6 @@ namespace FearMe.Net.Online
             yaw = stalker.transform.eulerAngles.y
         };
 
-        private static string PathOf(Transform t)
-        {
-            StringBuilder path = new StringBuilder();
-            for (Transform node = t; node != null; node = node.parent)
-                path.Insert(0, "/" + node.GetSiblingIndex().ToString("D4"));
-            return path.ToString();
-        }
 
         // --- Players ------------------------------------------------------------
 
