@@ -8,8 +8,8 @@
   <Project Path="Unity.RenderPipelines.Universal.2D.Runtime.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Editor.csproj" />
   <Project Path="UnityEngine.TestRunner.csproj" />
-  <Project Path="PPv2URPConverters.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="PPv2URPConverters.csproj" />
   <Project Path="UnityEditor.TestRunner.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Runtime.csproj" />
   <Project Path="Unity.UnifiedRayTracing.Runtime.csproj" />
