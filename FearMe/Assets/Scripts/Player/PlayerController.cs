@@ -76,8 +76,16 @@ namespace FearMe.Player
         // players; the local player's comes from Settings.
         public string DisplayName { get; set; } = string.Empty;
 
-        // Where a remote player's hands are, for showing what they carry.
+        // Where a remote player's hands are, for showing what they carry:
+        // one hand, or held against the chest for something heavy.
         public Transform HandAnchor { get; set; }
+        public Transform ChestAnchor { get; set; }
+
+        // What a remote player is carrying, so their body can hold it.
+        public HeldItem RemoteHeldItem { get; set; }
+
+        // Up and down look angle; positive is looking down.
+        public float LookPitch => pitch;
 
         private bool holdingBreath;
         private bool peeking;

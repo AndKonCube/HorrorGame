@@ -184,6 +184,7 @@ namespace FearMe.Scares
             if (source == null && partner != null)
             {
                 partnerLook = partner.transform.Find("Character");
+                if (partnerLook == null) partnerLook = partner.transform.Find("Mannequin");
                 if (partnerLook == null) partnerLook = partner.transform.Find("Body");
                 if (partnerLook != null) source = partnerLook.gameObject;
             }
@@ -203,6 +204,7 @@ namespace FearMe.Scares
             }
 
             body.name = "Mimic";
+            body.SetActive(true);
 
             // A figure, not an obstacle: nothing to bump into or aim at.
             foreach (Collider c in body.GetComponentsInChildren<Collider>()) Destroy(c);

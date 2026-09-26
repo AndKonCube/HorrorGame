@@ -59,6 +59,13 @@ namespace FearMe.Net.Online
         private readonly NetworkVariable<float> netYaw = new NetworkVariable<float>(0f,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+        // What the body needs to look like them: crouched or not, and where
+        // they are looking up or down.
+        private readonly NetworkVariable<bool> crouching = new NetworkVariable<bool>(false,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+        private readonly NetworkVariable<float> lookPitch = new NetworkVariable<float>(0f,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
         private readonly NetworkVariable<bool> torchOn = new NetworkVariable<bool>(false,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<float> noise = new NetworkVariable<float>(0f,
@@ -220,6 +227,11 @@ namespace FearMe.Net.Online
             if (!Mathf.Approximately(noise.Value, radius)) noise.Value = radius;
 
             if (hidden.Value != local.IsHidden) hidden.Value = local.IsHidden;
+            if (crouching.Value != local.IsCrouching) crouching.Value = local.IsCrouching;
+
+            // A couple of degrees is plenty for a head and an arm to follow.
+            float pitch = Mathf.Round(local.LookPitch / 2f) * 2f;
+            if (!Mathf.Approximately(lookPitch.Value, pitch)) lookPitch.Value = pitch;
             if (breathHeld.Value != local.HoldingBreath) breathHeld.Value = local.HoldingBreath;
             if (peeking.Value != local.IsPeeking) peeking.Value = local.IsPeeking;
         }
@@ -229,44 +241,30 @@ namespace FearMe.Net.Online
         private float spawnedAt;
         private bool warnedNoPosition;
 
-        // The body in the prefab is a plain dark capsule, which in a dark
-        // hospital is as good as invisible. Lighter, with a head, a faint
-        // lamp on them and a place for their hands.
+        private TeammateBody figure;
+
+        // What the other player sees of you: a figure that walks, crouches,
+        // looks around and holds things (see TeammateBody), a faint lamp so
+        // you can find each other in the dark, and hands to put items in.
         private void DressTeammate()
         {
-            // A real character, if one has been given: in place of the capsule.
-            if (characterModel != null && transform.Find("Character") == null)
+            if (figure != null) return;
+
+            if (characterModel != null)
             {
                 GameObject character = Instantiate(characterModel, transform);
                 character.name = "Character";
                 foreach (Collider c in character.GetComponentsInChildren<Collider>()) Destroy(c);
                 FitToHeight(character.transform, characterHeight);
-                if (body != null) body.SetActive(false);
+                figure = TeammateBody.FromModel(avatar, character.transform);
             }
-
-            Renderer bodyRenderer = body != null && body.activeSelf ? body.GetComponent<Renderer>() : null;
-            if (bodyRenderer != null)
+            else
             {
-                // An instanced material rather than a property block, so the
-                // mimic's copy of this body comes out the same colour.
-                Material skin = bodyRenderer.material;
-                skin.color = bodyTint;
-                if (skin.HasProperty("_BaseColor")) skin.SetColor("_BaseColor", bodyTint);
-
-                MeshFilter mesh = body.GetComponent<MeshFilter>();
-                if (body.transform.Find("Head") == null && mesh != null && mesh.sharedMesh != null &&
-                    mesh.sharedMesh.name.StartsWith("Capsule"))
-                {
-                    GameObject head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                    head.name = "Head";
-                    Destroy(head.GetComponent<Collider>());
-                    head.transform.SetParent(body.transform, false);
-                    // Body is scaled (0.7, 0.9, 0.7); this lands a ~0.3m head on top.
-                    head.transform.localPosition = new Vector3(0f, 1.05f, 0f);
-                    head.transform.localScale = new Vector3(0.42f, 0.33f, 0.42f);
-                    head.GetComponent<Renderer>().sharedMaterial = skin;
-                }
+                figure = TeammateBody.BuildMannequin(avatar, Skin());
             }
+
+            // The stand-in capsule is retired either way.
+            if (body != null) body.SetActive(false);
 
             if (transform.Find("PresenceLamp") == null && presenceLight > 0f)
             {
@@ -280,14 +278,34 @@ namespace FearMe.Net.Online
                 lamp.shadows = LightShadows.None;
             }
 
-            Transform hand = transform.Find("Hand");
-            if (hand == null)
+            avatar.HandAnchor = figure.HandMount;
+            avatar.ChestAnchor = figure.ChestMount;
+
+            // Their torch comes out of their hand and points where they look.
+            if (torchBeam != null)
             {
-                hand = new GameObject("Hand").transform;
-                hand.SetParent(transform, false);
-                hand.localPosition = new Vector3(0.32f, 1.05f, 0.42f);
+                torchBeam.transform.SetParent(figure.TorchMount, false);
+                torchBeam.transform.localPosition = new Vector3(0f, 0f, 0.1f);
+                torchBeam.transform.localRotation = Quaternion.identity;
             }
-            avatar.HandAnchor = hand;
+        }
+
+        // The capsule's own material, lightened, so the figure reads in the
+        // dark; an instance, so the mimic's copy comes out the same colour.
+        private Material Skin()
+        {
+            Renderer bodyRenderer = body != null ? body.GetComponent<Renderer>() : null;
+            Material skin = bodyRenderer != null ? bodyRenderer.material : null;
+
+            if (skin == null)
+            {
+                Shader lit = Shader.Find("Universal Render Pipeline/Lit");
+                skin = new Material(lit != null ? lit : Shader.Find("Standard"));
+            }
+
+            skin.color = bodyTint;
+            if (skin.HasProperty("_BaseColor")) skin.SetColor("_BaseColor", bodyTint);
+            return skin;
         }
 
         // Whatever size the model was made at, it ends up this tall with its
@@ -311,6 +329,13 @@ namespace FearMe.Net.Online
         private void MirrorRemoteState()
         {
             avatar.DisplayName = displayName.Value.ToString();
+
+            if (figure != null)
+            {
+                figure.Crouching = crouching.Value;
+                figure.LookPitch = lookPitch.Value;
+                figure.TorchOn = torchOn.Value;
+            }
 
             // Once, if the other machine never says where its player is: the
             // one thing that makes a teammate invisible no matter what.

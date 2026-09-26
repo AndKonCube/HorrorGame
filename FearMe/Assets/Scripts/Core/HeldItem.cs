@@ -36,6 +36,11 @@ namespace FearMe.Core
 
         public string DisplayName => displayName;
 
+        // Carried in both arms against the chest rather than in one hand.
+        public virtual bool TwoHanded => false;
+
+        private PlayerController remoteHolder;
+
         public override string Prompt => IsHeld || HeldRemotely ? string.Empty : "Take " + displayName;
 
         protected virtual void Awake()
@@ -51,6 +56,7 @@ namespace FearMe.Core
         protected virtual void OnDestroy()
         {
             PropSync.Unregister(PropId);
+            LetGoRemotely();
         }
 
         public override void Interact()
@@ -133,11 +139,13 @@ namespace FearMe.Core
 
                 case Dropped:
                     HeldRemotely = false;
+                    LetGoRemotely();
                     PlaceAt(value);
                     SetVisible(true);
                     break;
 
                 case Consumed:
+                    LetGoRemotely();
                     Destroy(gameObject);
                     break;
 
@@ -148,23 +156,33 @@ namespace FearMe.Core
         }
 
         // Two players, so the other one is simply whoever is not local. It
-        // hangs from their hand, so it moves with them and can be seen.
+        // goes in their hand - or their arms, if it is heavy - so it moves
+        // with them and their body holds it.
         private void ShowInTeammatesHands()
         {
             foreach (PlayerController player in PlayerRegistry.All)
             {
                 if (player == null || player.IsLocalPlayer) continue;
 
-                Transform hand = player.HandAnchor != null ? player.HandAnchor : player.transform;
-                transform.SetParent(hand, false);
-                transform.localPosition = player.HandAnchor != null ? Vector3.zero : new Vector3(0.3f, 1.1f, 0.45f);
+                Transform anchor = TwoHanded ? player.ChestAnchor : player.HandAnchor;
+                transform.SetParent(anchor != null ? anchor : player.transform, false);
+                transform.localPosition = anchor != null ? Vector3.zero : new Vector3(0.3f, 1.1f, 0.45f);
                 transform.localRotation = Quaternion.identity;
                 SetVisible(true);
+
+                remoteHolder = player;
+                player.RemoteHeldItem = this;
                 return;
             }
 
             // No body to put it in yet: at least take it off the floor.
             SetVisible(false);
+        }
+
+        private void LetGoRemotely()
+        {
+            if (remoteHolder != null && remoteHolder.RemoteHeldItem == this) remoteHolder.RemoteHeldItem = null;
+            remoteHolder = null;
         }
 
         private void SetVisible(bool visible)

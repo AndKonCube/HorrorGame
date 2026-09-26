@@ -20,6 +20,8 @@ namespace FearMe.Items
 
         public bool IsDelivered { get; private set; }
 
+        public override bool TwoHanded => true;
+
         public override string Prompt => IsDelivered ? string.Empty : base.Prompt;
 
         protected override void OnTaken(PlayerHands hands)
@@ -54,7 +56,14 @@ namespace FearMe.Items
 
         protected override void OnRemote(int state, Vector3 value)
         {
-            if (state == Delivered) Settle(value, null);
+            if (state != Delivered) return;
+
+            // Out of the teammate's arms and into its slot.
+            foreach (PlayerController player in PlayerRegistry.All)
+                if (player != null && player.RemoteHeldItem == this) player.RemoteHeldItem = null;
+
+            Settle(value, null);
+            foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = true;
         }
 
         private void Settle(Vector3 position, Transform slot)
