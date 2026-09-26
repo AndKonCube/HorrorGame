@@ -147,6 +147,11 @@ namespace FearMe.Player
 
             currentHeight = standHeight;
             yaw = transform.eulerAngles.y;
+
+            // Being caught, dragged, caged and revived all live on the vitals.
+            // A player set up without them could never be downed - the
+            // stalker just walked into them - so make sure they are there.
+            if (GetComponent<PlayerVitals>() == null) gameObject.AddComponent<PlayerVitals>();
         }
 
         // The action asset outlives this component, so a lambda left subscribed

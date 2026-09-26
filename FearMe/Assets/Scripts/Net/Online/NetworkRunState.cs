@@ -459,7 +459,10 @@ namespace FearMe.Net.Online
             foreach (NetworkPlayer player in NetworkPlayer.All)
             {
                 if (player == null) continue;
-                PlayerVitals vitals = player.GetComponent<PlayerVitals>();
+                // Your own state lives on the scene player; the hidden proxy's
+                // vitals are switched off.
+                PlayerController me = player.IsOwner ? PlayerRegistry.Local : null;
+                PlayerVitals vitals = me != null ? me.GetComponent<PlayerVitals>() : player.GetComponent<PlayerVitals>();
                 string pose = player.IsOwner ? "mine (hidden)" :
                     $"at {player.transform.position:F1}  reported {player.ReportedPosition:F1}  " +
                     $"last pose {Mathf.Min(player.SecondsSincePose, 99f):F1}s ago  body {(player.HasFigure ? "built" : "MISSING")}";
