@@ -15,8 +15,8 @@ namespace FearMe.Player
     public class RiteCaster : MonoBehaviour
     {
         [SerializeField] private Key riteKey = Key.R;
-        [Tooltip("Seconds of holding the key to finish the reading.")]
-        [SerializeField] private float chantSeconds = 1.6f;
+        [Tooltip("Seconds of reading per page held - long enough to say its verse out loud.")]
+        [SerializeField] private float secondsPerPage = 3.2f;
         [Tooltip("Looped while chanting.")]
         [SerializeField] private AudioClip chantLoop;
 
@@ -27,6 +27,18 @@ namespace FearMe.Player
 
         // 0-1 through the reading, for the HUD.
         public float Progress { get; private set; }
+
+        // R is held and the rite can be read: the HUD shows the words.
+        public bool Reading { get; private set; }
+
+        private float ChantSeconds
+        {
+            get
+            {
+                int pages = SpawnDirector.Instance != null ? SpawnDirector.Instance.State.pagesHeld : 1;
+                return Mathf.Max(1.5f, secondsPerPage * Mathf.Max(1, pages));
+            }
+        }
 
         // What the HUD shows under the prompt, and why it cannot be used yet.
         public bool CanChant
@@ -58,10 +70,11 @@ namespace FearMe.Player
             Keyboard keyboard = Keyboard.current;
             bool held = keyboard != null && keyboard[riteKey].isPressed;
             bool chanting = held && CanChant && Time.time >= cooldownUntil;
+            Reading = chanting;
 
             if (chanting)
             {
-                Progress += Time.deltaTime / Mathf.Max(0.2f, chantSeconds);
+                Progress += Time.deltaTime / ChantSeconds;
                 StartVoice();
 
                 if (Progress >= 1f)

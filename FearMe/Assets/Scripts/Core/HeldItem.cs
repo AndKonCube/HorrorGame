@@ -134,6 +134,7 @@ namespace FearMe.Core
                 case Dropped:
                     HeldRemotely = false;
                     PlaceAt(value);
+                    SetVisible(true);
                     break;
 
                 case Consumed:
@@ -146,18 +147,29 @@ namespace FearMe.Core
             }
         }
 
-        // Two players, so the other one is simply whoever is not local.
+        // Two players, so the other one is simply whoever is not local. It
+        // hangs from their hand, so it moves with them and can be seen.
         private void ShowInTeammatesHands()
         {
             foreach (PlayerController player in PlayerRegistry.All)
             {
                 if (player == null || player.IsLocalPlayer) continue;
 
-                transform.SetParent(player.transform, false);
-                transform.localPosition = new Vector3(0.3f, 1.1f, 0.45f);
+                Transform hand = player.HandAnchor != null ? player.HandAnchor : player.transform;
+                transform.SetParent(hand, false);
+                transform.localPosition = player.HandAnchor != null ? Vector3.zero : new Vector3(0.3f, 1.1f, 0.45f);
                 transform.localRotation = Quaternion.identity;
+                SetVisible(true);
                 return;
             }
+
+            // No body to put it in yet: at least take it off the floor.
+            SetVisible(false);
+        }
+
+        private void SetVisible(bool visible)
+        {
+            foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = visible;
         }
 
         private void SetPhysical(bool physical)

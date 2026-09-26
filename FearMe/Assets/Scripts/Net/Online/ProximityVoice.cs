@@ -8,39 +8,38 @@ using FearMe.Settings;
 using Unity.Services.Authentication;
 using Unity.Services.Core;
 using Unity.Services.Vivox;
-using Unity.Services.Vivox.AudioTaps;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 
 namespace FearMe.Net.Online
 {
-    // Proximity voice over Vivox. Joins a voice channel named after the co-op
-    // session the moment you are in one, and leaves it when you are not.
+    // Proximity voice over Vivox. Joins a positional voice channel named
+    // after the co-op session the moment you are in one, and leaves it when
+    // you are not.
     //
-    // Your partner's voice does not come out of Vivox's own mixer: it is
-    // tapped into a Unity AudioSource that follows their body around, so it
-    // is really 3D - it fades out entirely past a few rooms, and a wall
-    // between you muffles it. In the lobby, with no body yet, it is plain chat.
+    // Distance is Vivox's own positional audio: full volume up close, fading
+    // to nothing at AudibleDistance. This machine reports where your head is
+    // several times a second. In the lobby everyone reports the same spot,
+    // so it is plain chat until the level loads.
+    //
+    // Walls: a line from your ears to their mouth that hits something solid
+    // drops their volume, so a voice through a door sounds further than it is.
     //
     // And the demon hears you too: while connected, how loud you are talking
     // is what MicrophoneNoise reports, push-to-talk and all.
     public class ProximityVoice : MonoBehaviour
     {
-        private const float Audible = 30f;       // metres; silent beyond this
-        private const float FullVolume = 1.5f;   // metres; as loud as it gets inside this
-        private const float OccludedCutoff = 900f;
-        private const float ClearCutoff = 22000f;
-        private const float OccludedVolume = 0.55f;
+        private const int AudibleDistance = 30;       // metres; silent beyond this
+        private const int ConversationalDistance = 1; // about half a person's height
+        private const float PositionInterval = 0.15f;
+        private const int OccludedVolume = -18;        // Vivox local volume, -50..50
         private const Key TalkKey = Key.V;
 
         private class Speaker
         {
             public VivoxParticipant participant;
-            public GameObject tap;
-            public AudioSource source;
-            public AudioLowPassFilter muffle;
-            public float occlusion;          // 0 clear, 1 behind a wall
+            public bool occluded;
+            public int appliedVolume = int.MinValue;
             public float nextOcclusionCheck;
         }
 
@@ -51,6 +50,7 @@ namespace FearMe.Net.Online
         private bool busy;
         private bool transmitting;
         private float retryAfter;
+        private float nextPosition;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Install()
@@ -60,14 +60,8 @@ namespace FearMe.Net.Online
             go.AddComponent<ProximityVoice>();
         }
 
-        private void OnEnable()
-        {
-            SceneManager.sceneLoaded += OnSceneLoaded;
-        }
-
         private void OnDisable()
         {
-            SceneManager.sceneLoaded -= OnSceneLoaded;
             MicrophoneNoise.ExternalLevel = null;
         }
 
@@ -83,6 +77,7 @@ namespace FearMe.Net.Online
             }
 
             TickTransmit();
+            TickPosition();
             TickSpeakers();
         }
 
@@ -113,24 +108,28 @@ namespace FearMe.Net.Online
                 {
                     string leaving = joinedChannel;
                     joinedChannel = null;
-                    ClearSpeakers();
+                    speakers.Clear();
+                    self = null;
+                    MicrophoneNoise.ExternalLevel = null;
                     await VivoxService.Instance.LeaveChannelAsync(leaving);
                 }
 
                 if (wanted != null)
                 {
                     await EnsureLoggedIn();
-                    await VivoxService.Instance.JoinGroupChannelAsync(wanted, ChatCapability.AudioOnly);
+
+                    Channel3DProperties space = new Channel3DProperties(AudibleDistance, ConversationalDistance,
+                        1f, AudioFadeModel.LinearByDistance);
+                    await VivoxService.Instance.JoinPositionalChannelAsync(wanted, ChatCapability.AudioOnly, space);
+
                     joinedChannel = wanted;
-                    Debug.Log("[FearMe] Voice chat connected.");
+                    nextPosition = 0f;
+                    Debug.Log("[FearMe] Voice chat connected (positional, silent beyond " + AudibleDistance + "m).");
+
                     transmitting = !GameSettingsService.Current.pushToTalk;
                     ApplyTransmit();
                     MicrophoneNoise.ExternalLevel = LocalLoudness;
                     Problem(string.Empty);
-                }
-                else
-                {
-                    MicrophoneNoise.ExternalLevel = null;
                 }
             }
             catch (Exception e)
@@ -165,8 +164,6 @@ namespace FearMe.Net.Online
             });
         }
 
-        // --- Participants ---------------------------------------------------------
-
         private void OnParticipantAdded(VivoxParticipant participant)
         {
             if (participant.IsSelf)
@@ -177,73 +174,52 @@ namespace FearMe.Net.Online
 
             if (speakers.ContainsKey(participant)) return;
 
-            // silenceInChannelAudioMix: heard only through this tap, never
-            // twice - once placed in the world, once flat in the ears.
-            GameObject tap = participant.CreateVivoxParticipantTap("Voice_" + participant.DisplayName, true);
-            DontDestroyOnLoad(tap);
-
-            AudioSource source = participant.ParticipantTapAudioSource;
-            if (source == null) source = tap.GetComponent<AudioSource>();
-
-            source.spatialBlend = 0f;
-            source.rolloffMode = AudioRolloffMode.Linear;
-            source.minDistance = FullVolume;
-            source.maxDistance = Audible;
-            source.dopplerLevel = 0f;
-
-            AudioLowPassFilter muffle = tap.AddComponent<AudioLowPassFilter>();
-            muffle.cutoffFrequency = ClearCutoff;
-
             Debug.Log("[FearMe] Voice: hearing " + participant.DisplayName + ".");
-
-            speakers[participant] = new Speaker
-            {
-                participant = participant,
-                tap = tap,
-                source = source,
-                muffle = muffle
-            };
+            speakers[participant] = new Speaker { participant = participant };
         }
 
         private void OnParticipantRemoved(VivoxParticipant participant)
         {
-            if (participant == self)
-            {
-                self = null;
-                return;
-            }
-
-            if (!speakers.ContainsKey(participant)) return;
-
-            participant.DestroyVivoxParticipantTap();
+            if (participant == self) self = null;
             speakers.Remove(participant);
         }
 
-        private void ClearSpeakers()
+        // --- Where you are ------------------------------------------------------
+
+        // Your head, several times a second. With no player yet (the lobby)
+        // everyone reports the origin, which is full volume for all.
+        private void TickPosition()
         {
-            foreach (Speaker speaker in speakers.Values)
+            if (Time.unscaledTime < nextPosition) return;
+            nextPosition = Time.unscaledTime + PositionInterval;
+
+            PlayerController local = PlayerRegistry.Local;
+            Camera view = local != null ? local.GetComponentInChildren<Camera>() : null;
+
+            Vector3 head = Vector3.zero;
+            Vector3 forward = Vector3.forward;
+            Vector3 up = Vector3.up;
+
+            if (view != null)
             {
-                if (speaker.participant != null) speaker.participant.DestroyVivoxParticipantTap();
-                else if (speaker.tap != null) Destroy(speaker.tap);
+                head = view.transform.position;
+                forward = view.transform.forward;
+                up = view.transform.up;
+            }
+            else if (local != null)
+            {
+                head = local.transform.position + Vector3.up * 1.6f;
+                forward = local.transform.forward;
             }
 
-            speakers.Clear();
-            self = null;
-            MicrophoneNoise.ExternalLevel = null;
-        }
-
-        // A scene load can break the link between a tap and Unity's audio;
-        // switching the tap off and on again restores it.
-        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
-        {
-            foreach (Speaker speaker in speakers.Values)
+            try
             {
-                if (speaker.tap == null) continue;
-
-                VivoxParticipantTap tap = speaker.tap.GetComponent<VivoxParticipantTap>();
-                if (tap == null) continue;
-                tap.enabled = false;
-                tap.enabled = true;
+                VivoxService.Instance.Set3DPosition(head, head, forward, up, joinedChannel);
+            }
+            catch (Exception e)
+            {
+                // Not ready yet straight after joining; the next tick tries again.
+                Debug.LogWarning("[FearMe] Voice position: " + e.Message);
             }
         }
 
@@ -279,47 +255,38 @@ namespace FearMe.Net.Online
 
         private void TickSpeakers()
         {
-            AudioListener listener = FindFirstObjectByType<AudioListener>();
             PlayerController local = PlayerRegistry.Local;
-            float volume = GameSettingsService.Current.voiceVolume;
+            Camera view = local != null ? local.GetComponentInChildren<Camera>() : null;
+            float setting = GameSettingsService.Current.voiceVolume;
             bool partnerSpeaking = false;
 
             foreach (Speaker speaker in speakers.Values)
             {
-                if (speaker.tap == null || speaker.source == null) continue;
                 if (speaker.participant.SpeechDetected) partnerSpeaking = true;
 
-                Transform body = BodyOf(speaker.participant);
-
-                // No body yet - the lobby - so just talk.
-                if (body == null || listener == null)
-                {
-                    speaker.source.spatialBlend = 0f;
-                    speaker.muffle.cutoffFrequency = ClearCutoff;
-                    speaker.source.volume = volume;
-                    continue;
-                }
-
-                Vector3 mouth = body.position + Vector3.up * 1.6f;
-                speaker.tap.transform.position = mouth;
-                speaker.source.spatialBlend = 1f;
-
+                // Behind a wall or not, checked a few times a second.
                 if (Time.unscaledTime >= speaker.nextOcclusionCheck)
                 {
-                    speaker.nextOcclusionCheck = Time.unscaledTime + 0.15f;
-                    float target = Blocked(listener.transform.position, mouth, body, local) ? 1f : 0f;
-                    speaker.occlusion = Mathf.MoveTowards(speaker.occlusion, target, 0.5f);
+                    speaker.nextOcclusionCheck = Time.unscaledTime + 0.2f;
+                    Transform body = BodyOf(speaker.participant);
+                    speaker.occluded = view != null && body != null &&
+                        Blocked(view.transform.position, body.position + Vector3.up * 1.6f, body, local);
                 }
 
-                speaker.muffle.cutoffFrequency = Mathf.Lerp(ClearCutoff, OccludedCutoff, speaker.occlusion);
-                speaker.source.volume = volume * Mathf.Lerp(1f, OccludedVolume, speaker.occlusion);
+                // The settings slider scales -50 (silent) to 0 (as sent).
+                int volume = Mathf.RoundToInt(Mathf.Lerp(-50f, 0f, setting)) + (speaker.occluded ? OccludedVolume : 0);
+                volume = Mathf.Clamp(volume, -50, 50);
+
+                if (volume == speaker.appliedVolume) continue;
+                speaker.appliedVolume = volume;
+                speaker.participant.SetLocalVolume(volume);
             }
 
             SetStatus(true, transmitting, self != null && transmitting && self.SpeechDetected, partnerSpeaking);
         }
 
-        // Their proxy body on this machine; with two players, the one that is
-        // not us is the only candidate if the ids have not synced yet.
+        // Their body on this machine; with two players, the one that is not us
+        // is the only candidate if the ids have not synced yet.
         private static Transform BodyOf(VivoxParticipant participant)
         {
             Transform body = NetworkPlayer.BodyOf(participant.PlayerId);

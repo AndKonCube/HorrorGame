@@ -76,6 +76,10 @@ namespace FearMe.Core
         // When the demon last came back, for the HUD's warning.
         public float LastReturnTime { get; private set; } = -100f;
 
+        // When a page was last picked up, and which verse it carried.
+        public float LastPageTime { get; private set; } = -100f;
+        public int LastPageVerse { get; private set; }
+
         public string KeyName(int index) =>
             index >= 0 && index < keyNames.Length ? keyNames[index] : "key";
 
@@ -421,6 +425,13 @@ namespace FearMe.Core
             state = next;
 
             if (objectives != null) objectives.SetKeysCollected(next.keysHeld);
+
+            // A page found (not the reset a rite causes): show its verse.
+            if (next.pagesHeld > previous.pagesHeld)
+            {
+                LastPageTime = Time.time;
+                LastPageVerse = next.pagesHeld - 1;
+            }
 
             ApplyKey(previous, next);
             for (int slot = 0; slot < RunSnapshot.PageSlots; slot++) ApplyPage(slot, next.PageSpot(slot));

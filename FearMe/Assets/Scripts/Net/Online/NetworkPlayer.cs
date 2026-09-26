@@ -31,6 +31,12 @@ namespace FearMe.Net.Online
         [Tooltip("Positions arrive a little late, so reviving gets some leeway.")]
         [SerializeField] private float reviveRangeSlack = 1.5f;
 
+        [Header("How a teammate looks")]
+        [Tooltip("Light enough to read in a dark corridor.")]
+        [SerializeField] private Color bodyTint = new Color(0.6f, 0.56f, 0.5f);
+        [Tooltip("A faint warm glow on them, so you can find each other in the dark.")]
+        [SerializeField] private float presenceLight = 0.7f;
+
         private static readonly List<NetworkPlayer> all = new List<NetworkPlayer>();
 
         private readonly NetworkVariable<bool> down = new NetworkVariable<bool>();
@@ -61,6 +67,9 @@ namespace FearMe.Net.Online
         private readonly NetworkVariable<bool> breathHeld = new NetworkVariable<bool>(false,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<bool> peeking = new NetworkVariable<bool>(false,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
+        private readonly NetworkVariable<FixedString32Bytes> displayName = new NetworkVariable<FixedString32Bytes>(default,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
         // The owner's sign-in id - what voice chat knows a speaker by - so a
@@ -99,6 +108,8 @@ namespace FearMe.Net.Online
 
             if (IsOwner && AuthenticationService.Instance.IsSignedIn)
                 authId.Value = new FixedString64Bytes(AuthenticationService.Instance.PlayerId);
+            if (IsOwner)
+                displayName.Value = new FixedString32Bytes(FearMe.Settings.GameSettingsService.Current.playerName);
 
             if (IsOwner) BindToLocalPlayer();
             else ShowAsTeammate();
@@ -166,6 +177,9 @@ namespace FearMe.Net.Online
         private void ShowAsTeammate()
         {
             if (body != null) body.SetActive(true);
+            DressTeammate();
+            spawnedAt = Time.unscaledTime;
+            Debug.Log("[FearMe] Teammate joined the level.");
 
             // Straight to wherever they already are, rather than gliding
             // there from the spawn point.
@@ -208,8 +222,73 @@ namespace FearMe.Net.Online
 
         // What the stalker on the server needs to know about someone it cannot
         // measure itself: how loud they are, and whether they are in a closet.
+        private float spawnedAt;
+        private bool warnedNoPosition;
+
+        // The body in the prefab is a plain dark capsule, which in a dark
+        // hospital is as good as invisible. Lighter, with a head, a faint
+        // lamp on them and a place for their hands.
+        private void DressTeammate()
+        {
+            Renderer bodyRenderer = body != null ? body.GetComponent<Renderer>() : null;
+            if (bodyRenderer != null)
+            {
+                // An instanced material rather than a property block, so the
+                // mimic's copy of this body comes out the same colour.
+                Material skin = bodyRenderer.material;
+                skin.color = bodyTint;
+                if (skin.HasProperty("_BaseColor")) skin.SetColor("_BaseColor", bodyTint);
+
+                MeshFilter mesh = body.GetComponent<MeshFilter>();
+                if (body.transform.Find("Head") == null && mesh != null && mesh.sharedMesh != null &&
+                    mesh.sharedMesh.name.StartsWith("Capsule"))
+                {
+                    GameObject head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    head.name = "Head";
+                    Destroy(head.GetComponent<Collider>());
+                    head.transform.SetParent(body.transform, false);
+                    // Body is scaled (0.7, 0.9, 0.7); this lands a ~0.3m head on top.
+                    head.transform.localPosition = new Vector3(0f, 1.05f, 0f);
+                    head.transform.localScale = new Vector3(0.42f, 0.33f, 0.42f);
+                    head.GetComponent<Renderer>().sharedMaterial = skin;
+                }
+            }
+
+            if (transform.Find("PresenceLamp") == null && presenceLight > 0f)
+            {
+                Light lamp = new GameObject("PresenceLamp").AddComponent<Light>();
+                lamp.transform.SetParent(transform, false);
+                lamp.transform.localPosition = new Vector3(0f, 1.3f, 0.25f);
+                lamp.type = LightType.Point;
+                lamp.color = new Color(1f, 0.84f, 0.62f);
+                lamp.intensity = presenceLight;
+                lamp.range = 3f;
+                lamp.shadows = LightShadows.None;
+            }
+
+            Transform hand = transform.Find("Hand");
+            if (hand == null)
+            {
+                hand = new GameObject("Hand").transform;
+                hand.SetParent(transform, false);
+                hand.localPosition = new Vector3(0.32f, 1.05f, 0.42f);
+            }
+            avatar.HandAnchor = hand;
+        }
+
         private void MirrorRemoteState()
         {
+            avatar.DisplayName = displayName.Value.ToString();
+
+            // Once, if the other machine never says where its player is: the
+            // one thing that makes a teammate invisible no matter what.
+            if (!warnedNoPosition && netPosition.Value == Vector3.zero && Time.unscaledTime - spawnedAt > 5f)
+            {
+                warnedNoPosition = true;
+                Debug.LogWarning("[FearMe] The teammate has not sent a position yet - their game may not have " +
+                    "found its own player. Check their Console for errors.");
+            }
+
             // Updates arrive a few times a tick; ease between them so the
             // body glides instead of stepping.
             float ease = 1f - Mathf.Exp(-15f * Time.deltaTime);

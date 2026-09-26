@@ -212,6 +212,15 @@ namespace FearMe.Scares
 
             torch = BuildTorch(root.transform);
 
+            // The real teammate carries a faint lamp; so does the copy.
+            Transform lamp = partner != null ? partner.transform.Find("PresenceLamp") : null;
+            if (lamp != null)
+            {
+                Transform copy = Instantiate(lamp.gameObject, root.transform).transform;
+                copy.localPosition = lamp.localPosition;
+                copy.localRotation = lamp.localRotation;
+            }
+
             root.SetActive(false);
             mimicBody = root;
             return root;

@@ -72,6 +72,13 @@ namespace FearMe.Player
         public bool RemoteHoldingBreath { get; set; }
         public bool RemotePeeking { get; set; }
 
+        // What a teammate's name tag reads. Set by the network for remote
+        // players; the local player's comes from Settings.
+        public string DisplayName { get; set; } = string.Empty;
+
+        // Where a remote player's hands are, for showing what they carry.
+        public Transform HandAnchor { get; set; }
+
         private bool holdingBreath;
         private bool peeking;
 

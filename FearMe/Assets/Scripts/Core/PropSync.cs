@@ -32,6 +32,15 @@ namespace FearMe.Core
             return id;
         }
 
+        // For something built at runtime, whose place in the hierarchy may
+        // differ between machines: the caller supplies an id both agree on.
+        public static int RegisterWithId(int id, Component owner, Action<int, Vector3> apply)
+        {
+            handlers[id] = apply;
+            owners[id] = owner;
+            return id;
+        }
+
         public static void Unregister(int id)
         {
             handlers.Remove(id);

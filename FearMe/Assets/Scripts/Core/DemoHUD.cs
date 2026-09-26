@@ -156,16 +156,60 @@ namespace FearMe.Core
             }
         }
 
+        // While R is held: the rite itself, for the player to read aloud, each
+        // line lighting up as the reading reaches it. And for a few seconds
+        // after a page is found, that page's verse.
         private void DrawChant(float cx, float cy)
         {
+            SpawnDirector director = SpawnDirector.Instance;
             PlayerController local = PlayerRegistry.Local;
             RiteCaster caster = local != null ? local.GetComponent<RiteCaster>() : null;
-            if (caster == null || caster.Progress <= 0f) return;
 
-            GUIStyle chant = new GUIStyle(textStyle) { alignment = TextAnchor.MiddleCenter };
-            chant.normal.textColor = Gold;
-            GUI.Label(new Rect(cx - 200f, cy - 70f, 400f, 30f), "reading the rite...", chant);
-            DrawBar(new Rect(cx - 110f, cy - 40f, 220f, 6f), caster.Progress, Gold);
+            if (director != null && caster != null && (caster.Reading || caster.Progress > 0f))
+            {
+                DrawRite(director.State.pagesHeld, caster.Progress, cx);
+                return;
+            }
+
+            if (director != null && Time.time - director.LastPageTime < 6f)
+                DrawFoundPage(director.LastPageVerse, Time.time - director.LastPageTime, cx);
+        }
+
+        private void DrawRite(int pages, float progress, float cx)
+        {
+            string[] lines = RiteText.Lines(pages);
+            float top = Screen.height * 0.16f;
+
+            GUIStyle title = new GUIStyle(centerStyle) { fontSize = 20 };
+            title.normal.textColor = new Color(Gold.r, Gold.g, Gold.b, 0.8f);
+            GUI.Label(new Rect(0f, top, Screen.width, 30f), RiteText.Title + "  -  read it aloud", title);
+
+            GUIStyle line = new GUIStyle(centerStyle) { fontSize = 24, wordWrap = true };
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // Lit once the reading reaches it; the next one glimmers ahead.
+                float reached = progress * lines.Length - i;
+                float alpha = reached >= 0f ? 1f : Mathf.Clamp01(1f + reached) * 0.35f + 0.12f;
+                line.normal.textColor = new Color(Gold.r, Gold.g, Gold.b, alpha);
+                GUI.Label(new Rect(Screen.width * 0.1f, top + 40f + i * 36f, Screen.width * 0.8f, 34f), lines[i], line);
+            }
+
+            DrawBar(new Rect(cx - 140f, top + 50f + lines.Length * 36f, 280f, 6f), progress, Gold);
+        }
+
+        private void DrawFoundPage(int verse, float age, float cx)
+        {
+            float alpha = Mathf.Clamp01(Mathf.Min(age * 3f, (6f - age) * 1.5f));
+            float top = Screen.height * 0.2f;
+
+            GUIStyle title = new GUIStyle(centerStyle) { fontSize = 20 };
+            title.normal.textColor = new Color(Gold.r, Gold.g, Gold.b, alpha * 0.8f);
+            GUI.Label(new Rect(0f, top, Screen.width, 30f),
+                $"PAGE {verse + 1} OF THE RITE  -  hold R to read what you have", title);
+
+            GUIStyle words = new GUIStyle(centerStyle) { fontSize = 22, wordWrap = true };
+            words.normal.textColor = new Color(Gold.r, Gold.g, Gold.b, alpha);
+            GUI.Label(new Rect(Screen.width * 0.1f, top + 36f, Screen.width * 0.8f, 80f), RiteText.Verse(verse), words);
         }
 
         // While hidden: the controls, your breath, and whether it is close.
@@ -198,6 +242,41 @@ namespace FearMe.Core
                 GUI.Label(new Rect(0f, Screen.height * 0.3f, Screen.width, 36f),
                     local.HoldingBreath ? "don't breathe" : "it's right outside", warn);
                 break;
+            }
+        }
+
+        // A quiet name over your teammate's head - only when you could see
+        // them anyway (in view, in range, nothing solid between), so it helps
+        // find each other in the dark without seeing through walls.
+        private void DrawTeammates()
+        {
+            PlayerController local = PlayerRegistry.Local;
+            Camera view = local != null ? local.GetComponentInChildren<Camera>() : null;
+            if (view == null) return;
+
+            foreach (PlayerController other in PlayerRegistry.All)
+            {
+                if (other == null || other == local || other.IsLocalPlayer) continue;
+
+                Vector3 head = other.transform.position + Vector3.up * 2.1f;
+                float distance = Vector3.Distance(view.transform.position, head);
+                if (distance > 25f) continue;
+
+                Vector3 screen = view.WorldToScreenPoint(head);
+                if (screen.z <= 0f) continue;
+
+                if (Physics.Linecast(view.transform.position, head, out RaycastHit hit, ~0, QueryTriggerInteraction.Ignore)
+                    && !hit.collider.transform.IsChildOf(other.transform)
+                    && !hit.collider.transform.IsChildOf(local.transform))
+                    continue;
+
+                string label = string.IsNullOrEmpty(other.DisplayName) ? "partner" : other.DisplayName;
+                PlayerVitals vitals = other.GetComponent<PlayerVitals>();
+                if (vitals != null && vitals.IsDown && !vitals.IsDead) label += "  (down)";
+
+                GUIStyle tag = new GUIStyle(textStyle) { alignment = TextAnchor.MiddleCenter, fontSize = 14 };
+                tag.normal.textColor = new Color(0.85f, 0.83f, 0.78f, Mathf.Lerp(0.85f, 0.25f, distance / 25f));
+                GUI.Label(new Rect(screen.x - 100f, Screen.height - screen.y - 12f, 200f, 24f), label, tag);
             }
         }
 
@@ -280,6 +359,7 @@ namespace FearMe.Core
             GUI.Label(new Rect(24f, 48f, 460f, 30f), "F flashlight - C crouch - Shift run", textStyle);
             DrawHeld();
 
+            DrawTeammates();
             DrawVitals();
             DrawVoice();
             DrawVoiceChat();
