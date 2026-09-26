@@ -54,6 +54,8 @@ namespace FearMe.Net.Online
         // brain off and follow these instead.
         private readonly NetworkList<StalkerPose> stalkerPoses = new NetworkList<StalkerPose>();
         private readonly List<EnemyStalkerAI> stalkers = new List<EnemyStalkerAI>();
+        // Every stalker, including ones moved by their own NetworkTransform.
+        private readonly List<EnemyStalkerAI> everyStalker = new List<EnemyStalkerAI>();
         private float nextPoseSend;
 
         private bool ended;
@@ -78,9 +80,7 @@ namespace FearMe.Net.Online
             if (IsServer)
             {
                 seed.Value = UnityEngine.Random.Range(int.MinValue, int.MaxValue);
-
-                SpawnProxies();
-                NetworkManager.OnClientConnectedCallback += SpawnProxyFor;
+                NetworkManager.OnClientDisconnectCallback += ForgetClient;
             }
 
             // The key spawner has been waiting for exactly this.
@@ -91,6 +91,13 @@ namespace FearMe.Net.Online
 
             InstallHooks();
             BindDirector();
+
+            // Player bodies are only made once a machine says it has the level
+            // loaded. Placed in the scene, this wakes on the host while a guest
+            // is still loading - a body sent then lands in the menu scene the
+            // guest is about to unload, and vanishes with it.
+            if (IsServer) MarkReady(NetworkManager.LocalClientId);
+            else ReadyRpc();
         }
 
         private void BindDirector()
@@ -141,7 +148,7 @@ namespace FearMe.Net.Online
             if (director != null) director.Changed -= PushRun;
 
             if (IsServer && NetworkManager != null)
-                NetworkManager.OnClientConnectedCallback -= SpawnProxyFor;
+                NetworkManager.OnClientDisconnectCallback -= ForgetClient;
 
             // A reloaded level must wait for its own seed, not reuse this one.
             CoopHooks.RunSeed = null;
@@ -228,8 +235,10 @@ namespace FearMe.Net.Online
         private void BindStalkers()
         {
             stalkers.Clear();
+            everyStalker.Clear();
             foreach (EnemyStalkerAI stalker in FindObjectsByType<EnemyStalkerAI>(FindObjectsSortMode.None))
             {
+                everyStalker.Add(stalker);
                 if (stalker.GetComponent<NetworkObject>() == null) stalkers.Add(stalker);
             }
             stalkers.Sort((a, b) => string.CompareOrdinal(SpawnDirector.PlaceOf(a.transform), SpawnDirector.PlaceOf(b.transform)));
@@ -244,7 +253,7 @@ namespace FearMe.Net.Online
             // A guest's copy only shows where the host's is - and is not solid,
             // so a copy running a moment behind cannot shove the guest about.
             // Being caught is decided on the host.
-            foreach (EnemyStalkerAI stalker in stalkers)
+            foreach (EnemyStalkerAI stalker in everyStalker)
             {
                 stalker.enabled = false;
                 NavMeshAgent agent = stalker.GetComponent<NavMeshAgent>();
@@ -306,11 +315,38 @@ namespace FearMe.Net.Online
 
         // --- Players ------------------------------------------------------------
 
-        private void SpawnProxies()
+        // Machines that have the level loaded, and so can be sent bodies.
+        private readonly HashSet<ulong> readyClients = new HashSet<ulong>();
+
+        [Rpc(SendTo.Server, RequireOwnership = false)]
+        private void ReadyRpc(RpcParams rpcParams = default)
         {
-            foreach (ulong clientId in NetworkManager.ConnectedClientsIds)
-                SpawnProxyFor(clientId);
+            MarkReady(rpcParams.Receive.SenderClientId);
         }
+
+        private void MarkReady(ulong clientId)
+        {
+            if (!readyClients.Add(clientId)) return;
+
+            // Everyone already here becomes visible to the newcomer...
+            foreach (NetworkPlayer player in NetworkPlayer.All)
+            {
+                if (player == null || !player.IsSpawned) continue;
+                NetworkObject proxy = player.NetworkObject;
+                if (!proxy.IsNetworkVisibleTo(clientId)) proxy.NetworkShow(clientId);
+            }
+
+            // ...and the newcomer gets a body of their own.
+            SpawnProxyFor(clientId);
+        }
+
+        private void ForgetClient(ulong clientId)
+        {
+            readyClients.Remove(clientId);
+        }
+
+        private bool CanSee(ulong clientId) =>
+            clientId == NetworkManager.ServerClientId || readyClients.Contains(clientId);
 
         private void SpawnProxyFor(ulong clientId)
         {
@@ -329,6 +365,10 @@ namespace FearMe.Net.Online
             Vector3 position = start != null ? start.transform.position : transform.position;
 
             NetworkObject proxy = Instantiate(playerProxyPrefab, position, Quaternion.identity);
+
+            // Only sent to machines with the level loaded; the rest are shown
+            // it when they say they are ready.
+            proxy.CheckObjectVisibility = CanSee;
 
             // Destroyed with the level, so a restart spawns fresh proxies.
             proxy.SpawnAsPlayerObject(clientId, true);
@@ -412,7 +452,8 @@ namespace FearMe.Net.Online
             StringBuilder report = new StringBuilder();
             report.AppendLine($"CO-OP  role: {(IsServer ? "HOST" : "GUEST")}   my id: {NetworkManager.LocalClientId}   " +
                               $"level match: {(CoopSession.LevelMismatch ? "NO" : "yes")}");
-            if (IsServer) report.AppendLine("connected players: " + NetworkManager.ConnectedClientsIds.Count);
+            if (IsServer) report.AppendLine("connected players: " + NetworkManager.ConnectedClientsIds.Count +
+                                            "   level loaded on: " + string.Join(", ", readyClients));
             report.AppendLine($"poses received: {posesReceived}   players registered here: {PlayerRegistry.All.Count}");
 
             foreach (NetworkPlayer player in NetworkPlayer.All)
@@ -426,7 +467,7 @@ namespace FearMe.Net.Online
                 report.AppendLine($"  player {player.OwnerClientId}: {pose}{state}");
             }
 
-            foreach (EnemyStalkerAI stalker in stalkers)
+            foreach (EnemyStalkerAI stalker in everyStalker)
             {
                 if (stalker == null) continue;
                 report.AppendLine($"  demon: {stalker.StateName}  at {stalker.transform.position:F1}" +
