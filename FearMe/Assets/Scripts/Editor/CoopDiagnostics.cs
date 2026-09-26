@@ -44,9 +44,15 @@ namespace FearMe.EditorTools
                 Fail("NOT LINKED TO UNITY CLOUD - Edit > Project Settings > Services, choose your organisation, " +
                      "link or create a project. Hosting and joining cannot work until this is done.");
 
-            // What the lobby spawns when it goes online.
+            // What the lobby and the host spawn when they go online.
             if (Resources.Load<GameObject>("Coop/CoopNetwork") != null) Pass("The network prefab exists.");
-            else Fail("Resources/Coop/CoopNetwork.prefab is missing - open the Demo scene and run Tools/FearMe/Co-op/Set Up Co-op.");
+            else Fail("Resources/Coop/CoopNetwork.prefab is missing - run Tools/FearMe/Co-op/Set Up Co-op.");
+
+            if (Resources.Load<GameObject>("Coop/CoopRunState") != null)
+                Pass("The run-state prefab exists (players' bodies, shared pickups, the stalker's position).");
+            else
+                Fail("Resources/Coop/CoopRunState.prefab is missing - without it players cannot see each other " +
+                     "or share pickups. Run Tools/FearMe/Co-op/Set Up Co-op.");
 
             // Netcode can only load scenes that are in the build.
             CheckBuildScenes(Pass, Fail);
@@ -54,11 +60,12 @@ namespace FearMe.EditorTools
             // Whatever scene is open.
             CheckOpenScene(Pass, Fail);
 
-            // Voice is optional; only report on it if it has been started.
             bool voice = Array.IndexOf(defines, CoopPackageInstaller.VoiceDefine) >= 0;
             if (voice && vivox) Pass("Proximity voice is installed - make sure Vivox is switched on in the Unity Cloud dashboard.");
             else if (voice) Fail("Voice is switched on but the Vivox package is missing - run Install Proximity Voice again.");
             else if (vivox) Fail("Vivox is installed but voice code is off - run Tools/FearMe/Co-op/Install Proximity Voice.");
+            else Fail("Proximity voice is not installed, so there is no voice chat - run " +
+                      "Tools/FearMe/Co-op/Install Proximity Voice, then switch Vivox on in the Unity Cloud dashboard.");
 
             StringBuilder report = new StringBuilder();
             report.AppendLine(problems.Count == 0
@@ -104,14 +111,8 @@ namespace FearMe.EditorTools
                 return;
             }
 
-            // The gameplay scene: needs the run state that spawns players.
-            Type runState = Type.GetType("FearMe.Net.Online.NetworkRunState, Assembly-CSharp");
-            if (runState == null) return; // online code off; already reported
-
-            if (UnityEngine.Object.FindFirstObjectByType(runState) != null)
-                pass($"'{scene.name}' has the co-op run state.");
-            else
-                fail($"'{scene.name}' has no co-op run state - run Tools/FearMe/Co-op/Set Up Co-op here, then save.");
+            // A gameplay scene needs nothing extra any more: the host spawns
+            // the run state itself when the level loads.
         }
 
         private static bool TypeExists(string assemblyQualifiedName) => Type.GetType(assemblyQualifiedName) != null;

@@ -27,6 +27,7 @@ namespace FearMe.Net.Online
 
         // Built by Tools/FearMe/Co-op/Set Up Co-op.
         private const string NetworkPrefabPath = "Coop/CoopNetwork";
+        private const string RunStatePrefabPath = "Coop/CoopRunState";
         private const string MenuScene = "MainMenu";
 
         private ISession session;
@@ -123,6 +124,11 @@ namespace FearMe.Net.Online
             }
 
             Report(SessionState.Starting, "Starting...");
+
+            // Once everyone has the level loaded - this time, and after every
+            // restart - the host puts the run's shared state into it.
+            network.SceneManager.OnLoadEventCompleted -= OnLevelLoaded;
+            network.SceneManager.OnLoadEventCompleted += OnLevelLoaded;
 
             // The server loads it; Netcode carries the guest along.
             network.SceneManager.LoadScene(sceneName, LoadSceneMode.Single);
@@ -238,6 +244,33 @@ namespace FearMe.Net.Online
                 leaving = false;
                 Report(SessionState.Offline, reason);
             }
+        }
+
+        // Spawned by the host rather than placed in the scene, so co-op never
+        // depends on a scene edit someone might not have saved. It goes with
+        // the level, so a restart spawns a fresh one.
+        private static void OnLevelLoaded(string sceneName, LoadSceneMode mode,
+            List<ulong> completed, List<ulong> timedOut)
+        {
+            NetworkManager network = NetworkManager.Singleton;
+            if (network == null || !network.IsServer || sceneName == MenuScene) return;
+
+            // Placed by hand in an older setup: that one will do.
+            if (Object.FindFirstObjectByType<NetworkRunState>() != null) return;
+
+            GameObject prefab = Resources.Load<GameObject>(RunStatePrefabPath);
+            if (prefab == null)
+            {
+                Debug.LogError("[FearMe] Resources/Coop/CoopRunState.prefab is missing, so players cannot see each " +
+                    "other or share pickups. Run Tools/FearMe/Co-op/Set Up Co-op, then rebuild.");
+                return;
+            }
+
+            if (timedOut != null && timedOut.Count > 0)
+                Debug.LogWarning($"[FearMe] {timedOut.Count} player(s) timed out loading '{sceneName}'.");
+
+            NetworkObject runState = Object.Instantiate(prefab).GetComponent<NetworkObject>();
+            runState.Spawn(true);
         }
 
         // --- Setup ------------------------------------------------------------------

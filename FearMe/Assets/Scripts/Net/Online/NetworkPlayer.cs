@@ -41,6 +41,14 @@ namespace FearMe.Net.Online
         private readonly NetworkVariable<int> captivity = new NetworkVariable<int>();
         private readonly NetworkVariable<int> anchorId = new NetworkVariable<int>();
 
+        // Where the owner is and which way they face. Plain variables the
+        // owner writes, rather than a NetworkTransform, whose ownership rules
+        // have changed between Netcode versions.
+        private readonly NetworkVariable<Vector3> netPosition = new NetworkVariable<Vector3>(default,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+        private readonly NetworkVariable<float> netYaw = new NetworkVariable<float>(0f,
+            NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
         private readonly NetworkVariable<bool> torchOn = new NetworkVariable<bool>(false,
             NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
         private readonly NetworkVariable<float> noise = new NetworkVariable<float>(0f,
@@ -158,6 +166,11 @@ namespace FearMe.Net.Online
         private void ShowAsTeammate()
         {
             if (body != null) body.SetActive(true);
+
+            // Straight to wherever they already are, rather than gliding
+            // there from the spawn point.
+            if (netPosition.Value != Vector3.zero)
+                transform.SetPositionAndRotation(netPosition.Value, Quaternion.Euler(0f, netYaw.Value, 0f));
         }
 
         private void LateUpdate()
@@ -173,8 +186,13 @@ namespace FearMe.Net.Online
         {
             if (local == null) return;
 
-            transform.SetPositionAndRotation(local.transform.position,
-                Quaternion.Euler(0f, local.transform.eulerAngles.y, 0f));
+            Vector3 position = local.transform.position;
+            float yaw = local.transform.eulerAngles.y;
+            transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+
+            // Only real movement is sent; standing still costs nothing.
+            if ((netPosition.Value - position).sqrMagnitude > 0.0004f) netPosition.Value = position;
+            if (Mathf.Abs(Mathf.DeltaAngle(netYaw.Value, yaw)) > 0.5f) netYaw.Value = yaw;
 
             bool torch = localTorch != null && localTorch.IsOn;
             if (torchOn.Value != torch) torchOn.Value = torch;
@@ -192,6 +210,13 @@ namespace FearMe.Net.Online
         // measure itself: how loud they are, and whether they are in a closet.
         private void MirrorRemoteState()
         {
+            // Updates arrive a few times a tick; ease between them so the
+            // body glides instead of stepping.
+            float ease = 1f - Mathf.Exp(-15f * Time.deltaTime);
+            transform.SetPositionAndRotation(
+                Vector3.Lerp(transform.position, netPosition.Value, ease),
+                Quaternion.Slerp(transform.rotation, Quaternion.Euler(0f, netYaw.Value, 0f), ease));
+
             avatar.RemoteNoiseRadius = noise.Value;
             avatar.RemoteHidden = hidden.Value;
             avatar.RemoteHoldingBreath = breathHeld.Value;

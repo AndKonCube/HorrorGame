@@ -122,6 +122,7 @@ namespace FearMe.Net.Online
                     await EnsureLoggedIn();
                     await VivoxService.Instance.JoinGroupChannelAsync(wanted, ChatCapability.AudioOnly);
                     joinedChannel = wanted;
+                    Debug.Log("[FearMe] Voice chat connected.");
                     transmitting = !GameSettingsService.Current.pushToTalk;
                     ApplyTransmit();
                     MicrophoneNoise.ExternalLevel = LocalLoudness;
@@ -192,6 +193,8 @@ namespace FearMe.Net.Online
 
             AudioLowPassFilter muffle = tap.AddComponent<AudioLowPassFilter>();
             muffle.cutoffFrequency = ClearCutoff;
+
+            Debug.Log("[FearMe] Voice: hearing " + participant.DisplayName + ".");
 
             speakers[participant] = new Speaker
             {

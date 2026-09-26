@@ -1,56 +1,68 @@
 #if FEARME_COOP_ONLINE
 using System.Collections.Generic;
-using FearMe.AI;
 using FearMe.Net.Online;
 using FearMe.Player;
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using Unity.Netcode.Transports.UTP;
 using UnityEditor;
-using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.AI;
 using UnityEngine.InputSystem;
-using UnityEngine.SceneManagement;
 
 namespace FearMe.EditorTools
 {
-    // Everything online co-op needs that is an asset or a scene edit rather
-    // than code:
+    // Everything online co-op needs as assets, kept in Resources/Coop:
     //
-    //   Resources/Coop/CoopPlayerProxy.prefab  - the teammate's body
-    //   Resources/Coop/CoopNetworkPrefabs.asset
-    //   Resources/Coop/CoopNetwork.prefab       - NetworkManager + transport
+    //   CoopPlayerProxy.prefab    - the teammate's body
+    //   CoopRunState.prefab       - the run's shared state, spawned by the host
+    //   CoopNetworkPrefabs.asset  - both of the above, registered with Netcode
+    //   CoopNetwork.prefab        - NetworkManager + transport
     //
-    // and, in the open gameplay scene, a NetworkRunState plus network
-    // components on each stalker. Non-destructive: the scene's own player and
-    // everything wired to it are left exactly as they are.
+    // Built automatically whenever scripts compile with online co-op on, so
+    // there is nothing to add to any scene and nothing to forget to save: the
+    // host spawns the run state itself when a level loads.
+    [InitializeOnLoad]
     public static class CoopSetup
     {
         private const string Folder = "Assets/Resources/Coop";
         private const string ProxyPath = Folder + "/CoopPlayerProxy.prefab";
+        private const string RunStatePath = Folder + "/CoopRunState.prefab";
         private const string PrefabListPath = Folder + "/CoopNetworkPrefabs.asset";
         private const string NetworkPath = Folder + "/CoopNetwork.prefab";
         private const string InputActionsPath = "Assets/InputSystem_Actions.inputactions";
 
-        [MenuItem("Tools/FearMe/Co-op/Set Up Co-op (open the gameplay scene first)")]
+        static CoopSetup()
+        {
+            // After the editor has finished loading, never mid-import.
+            EditorApplication.delayCall += () =>
+            {
+                if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+                EnsureAssets(quiet: true);
+            };
+        }
+
+        [MenuItem("Tools/FearMe/Co-op/Set Up Co-op")]
         public static void SetUp()
+        {
+            EnsureAssets(quiet: false);
+            Debug.Log("[FearMe] Co-op assets are in place under " + Folder + ". Nothing needs adding to " +
+                "any scene: the host spawns the run state when a level loads. Make a fresh build for both players.");
+        }
+
+        public static void EnsureAssets(bool quiet)
         {
             EnsureFolder();
 
-            GameObject proxy = BuildProxyPrefab();
-            NetworkPrefabsList list = BuildPrefabList(proxy);
-            BuildNetworkPrefab(list);
+            bool changed = false;
+            GameObject proxy = EnsureProxyPrefab(ref changed);
+            GameObject runState = EnsureRunStatePrefab(proxy, ref changed);
+            NetworkPrefabsList list = EnsurePrefabList(ref changed, proxy, runState);
+            EnsureNetworkPrefab(list, ref changed);
 
-            Scene scene = SceneManager.GetActiveScene();
-            int stalkers = PrepareScene(proxy);
+            if (!changed) return;
 
-            EditorSceneManager.MarkSceneDirty(scene);
             AssetDatabase.SaveAssets();
-            CheckBuildScenes(scene);
-
-            Debug.Log($"[FearMe] Co-op set up in '{scene.name}': run state added, {stalkers} stalker(s) " +
-                "made server-driven, network prefabs under " + Folder + ". Save the scene.");
+            if (quiet) Debug.Log("[FearMe] Co-op assets updated under " + Folder + ". Make a fresh build for both players.");
         }
 
         private static void EnsureFolder()
@@ -61,14 +73,26 @@ namespace FearMe.EditorTools
                 AssetDatabase.CreateFolder("Assets/Resources", "Coop");
         }
 
-        // --- The teammate's body ------------------------------------------------
+        // --- The teammate's body --------------------------------------------------
 
-        // Kept if it already exists, so a real model dropped under Body
-        // survives running this again. Delete the prefab to rebuild it.
-        private static GameObject BuildProxyPrefab()
+        private static GameObject EnsureProxyPrefab(ref bool changed)
         {
             GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(ProxyPath);
-            if (existing != null) return existing;
+            if (existing != null)
+            {
+                // Earlier builds moved it with a NetworkTransform; NetworkPlayer
+                // now syncs its own position, and the two would fight.
+                if (existing.GetComponent<NetworkTransform>() != null)
+                {
+                    GameObject contents = PrefabUtility.LoadPrefabContents(ProxyPath);
+                    foreach (NetworkTransform old in contents.GetComponents<NetworkTransform>())
+                        Object.DestroyImmediate(old);
+                    PrefabUtility.SaveAsPrefabAsset(contents, ProxyPath);
+                    PrefabUtility.UnloadPrefabContents(contents);
+                    changed = true;
+                }
+                return AssetDatabase.LoadAssetAtPath<GameObject>(ProxyPath);
+            }
 
             GameObject root = new GameObject("CoopPlayerProxy");
 
@@ -89,13 +113,6 @@ namespace FearMe.EditorTools
             root.AddComponent<PlayerVitals>();
             root.AddComponent<NetworkObject>();
 
-            OwnerNetworkTransform sync = root.AddComponent<OwnerNetworkTransform>();
-            sync.SyncRotAngleX = false;
-            sync.SyncRotAngleZ = false;
-            sync.SyncScaleX = false;
-            sync.SyncScaleY = false;
-            sync.SyncScaleZ = false;
-
             GameObject body = BuildBody(root.transform);
             Light torch = BuildTorch(root.transform);
 
@@ -105,6 +122,7 @@ namespace FearMe.EditorTools
 
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, ProxyPath);
             Object.DestroyImmediate(root);
+            changed = true;
             return prefab;
         }
 
@@ -151,107 +169,90 @@ namespace FearMe.EditorTools
             return light;
         }
 
+        // --- The run's shared state ---------------------------------------------
+
+        private static GameObject EnsureRunStatePrefab(GameObject proxy, ref bool changed)
+        {
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(RunStatePath);
+            if (existing != null)
+            {
+                NetworkRunState state = existing.GetComponent<NetworkRunState>();
+                SerializedObject so = new SerializedObject(state);
+                if (so.FindProperty("playerProxyPrefab").objectReferenceValue == null)
+                {
+                    SetObject(state, "playerProxyPrefab", proxy.GetComponent<NetworkObject>());
+                    changed = true;
+                }
+                return existing;
+            }
+
+            GameObject root = new GameObject("CoopRunState");
+            root.AddComponent<NetworkObject>();
+            NetworkRunState runState = root.AddComponent<NetworkRunState>();
+            SetObject(runState, "playerProxyPrefab", proxy.GetComponent<NetworkObject>());
+
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, RunStatePath);
+            Object.DestroyImmediate(root);
+            changed = true;
+            return prefab;
+        }
+
         // --- Network assets -----------------------------------------------------
 
-        private static NetworkPrefabsList BuildPrefabList(GameObject proxy)
+        private static NetworkPrefabsList EnsurePrefabList(ref bool changed, params GameObject[] prefabs)
         {
             NetworkPrefabsList list = AssetDatabase.LoadAssetAtPath<NetworkPrefabsList>(PrefabListPath);
             if (list == null)
             {
                 list = ScriptableObject.CreateInstance<NetworkPrefabsList>();
                 AssetDatabase.CreateAsset(list, PrefabListPath);
+                changed = true;
             }
 
-            bool listed = false;
-            foreach (NetworkPrefab entry in list.PrefabList)
+            foreach (GameObject prefab in prefabs)
             {
-                if (entry.Prefab == proxy) listed = true;
+                bool listed = false;
+                foreach (NetworkPrefab entry in list.PrefabList)
+                    if (entry.Prefab == prefab) listed = true;
+
+                if (listed) continue;
+                list.Add(new NetworkPrefab { Prefab = prefab });
+                changed = true;
             }
 
-            if (!listed) list.Add(new NetworkPrefab { Prefab = proxy });
-
-            EditorUtility.SetDirty(list);
+            if (changed) EditorUtility.SetDirty(list);
             return list;
         }
 
-        private static void BuildNetworkPrefab(NetworkPrefabsList list)
+        private static void EnsureNetworkPrefab(NetworkPrefabsList list, ref bool changed)
         {
+            GameObject existing = AssetDatabase.LoadAssetAtPath<GameObject>(NetworkPath);
+            if (existing != null)
+            {
+                NetworkManager manager = existing.GetComponent<NetworkManager>();
+                if (manager != null && manager.NetworkConfig != null &&
+                    manager.NetworkConfig.Prefabs.NetworkPrefabsLists.Contains(list))
+                    return;
+            }
+
             GameObject root = new GameObject("CoopNetwork");
 
             UnityTransport transport = root.AddComponent<UnityTransport>();
-            NetworkManager manager = root.AddComponent<NetworkManager>();
+            NetworkManager network = root.AddComponent<NetworkManager>();
 
-            manager.NetworkConfig = new NetworkConfig
+            network.NetworkConfig = new NetworkConfig
             {
                 NetworkTransport = transport,
                 EnableSceneManagement = true,
-                // Proxies are spawned by NetworkRunState once the level has
+                // Proxies are spawned by the run state once the level has
                 // loaded; an automatic player prefab would spawn in the menu.
                 PlayerPrefab = null
             };
-            manager.NetworkConfig.Prefabs.NetworkPrefabsLists = new List<NetworkPrefabsList> { list };
+            network.NetworkConfig.Prefabs.NetworkPrefabsLists = new List<NetworkPrefabsList> { list };
 
             PrefabUtility.SaveAsPrefabAsset(root, NetworkPath);
             Object.DestroyImmediate(root);
-        }
-
-        // --- The open scene -----------------------------------------------------
-
-        private static int PrepareScene(GameObject proxyPrefab)
-        {
-            NetworkRunState state = Object.FindFirstObjectByType<NetworkRunState>();
-            if (state == null)
-            {
-                GameObject go = new GameObject("CoopRunState");
-                go.AddComponent<NetworkObject>();
-                state = go.AddComponent<NetworkRunState>();
-            }
-            SetObject(state, "playerProxyPrefab", proxyPrefab.GetComponent<NetworkObject>());
-
-            // The stalker thinks on the server only; everyone else watches.
-            int count = 0;
-            foreach (EnemyStalkerAI stalker in Object.FindObjectsByType<EnemyStalkerAI>(FindObjectsSortMode.None))
-            {
-                GameObject go = stalker.gameObject;
-
-                if (go.GetComponent<NetworkObject>() == null) go.AddComponent<NetworkObject>();
-                if (go.GetComponent<NetworkTransform>() == null)
-                {
-                    NetworkTransform sync = go.AddComponent<NetworkTransform>();
-                    sync.SyncRotAngleX = false;
-                    sync.SyncRotAngleZ = false;
-                    sync.SyncScaleX = false;
-                    sync.SyncScaleY = false;
-                    sync.SyncScaleZ = false;
-                }
-
-                ServerOnly gate = go.GetComponent<ServerOnly>();
-                if (gate == null) gate = go.AddComponent<ServerOnly>();
-
-                List<Object> brains = new List<Object> { stalker };
-                NavMeshAgent agent = go.GetComponent<NavMeshAgent>();
-                if (agent != null) brains.Add(agent);
-                SetObjectArray(gate, "serverOnly", brains.ToArray());
-
-                count++;
-            }
-
-            return count;
-        }
-
-        // Netcode can only load scenes that are in the build list.
-        private static void CheckBuildScenes(Scene scene)
-        {
-            bool menu = false, game = false;
-            foreach (EditorBuildSettingsScene entry in EditorBuildSettings.scenes)
-            {
-                if (!entry.enabled) continue;
-                if (entry.path.EndsWith("/MainMenu.unity")) menu = true;
-                if (entry.path == scene.path) game = true;
-            }
-
-            if (!menu) Debug.LogWarning("[FearMe] MainMenu is not in the build list - the lobby lives there.");
-            if (!game) Debug.LogWarning($"[FearMe] '{scene.name}' is not in the build list - Netcode cannot load it.");
+            changed = true;
         }
 
         // --- Serialized-field helpers ------------------------------------------
@@ -262,17 +263,6 @@ namespace FearMe.EditorTools
             SerializedProperty prop = so.FindProperty(field);
             if (prop == null) { Debug.LogWarning($"[FearMe] Missing field '{field}' on {target.GetType().Name}"); return; }
             prop.objectReferenceValue = value;
-            so.ApplyModifiedPropertiesWithoutUndo();
-        }
-
-        private static void SetObjectArray(Object target, string field, Object[] values)
-        {
-            SerializedObject so = new SerializedObject(target);
-            SerializedProperty prop = so.FindProperty(field);
-            if (prop == null) return;
-            prop.arraySize = values.Length;
-            for (int i = 0; i < values.Length; i++)
-                prop.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
